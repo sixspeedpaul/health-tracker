@@ -8,7 +8,10 @@
   <meta name="apple-mobile-web-app-title" content="Health">
   <meta name="theme-color" content="#1a1a1a">
   <title>Health Tracker</title>
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231a1a1a' width='100' height='100' rx='20'/><text y='65' x='50' text-anchor='middle' font-size='50'>🩺</text></svg>">
+  
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
@@ -18,6 +21,62 @@
       min-height: 100vh;
       padding-bottom: env(safe-area-inset-bottom);
     }
+    
+    /* Login Screen */
+    .login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+      text-align: center;
+    }
+    .login-screen.hidden { display: none; }
+    .login-title {
+      font-size: 2rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #7cb88a, #4a9c6d);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .login-subtitle {
+      color: #888;
+      margin-bottom: 2rem;
+    }
+    .login-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.875rem 1.5rem;
+      background: #fff;
+      border: none;
+      border-radius: 8px;
+      color: #333;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .login-btn img {
+      width: 20px;
+      height: 20px;
+    }
+    .login-error {
+      color: #e57373;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+    .login-loading {
+      color: #888;
+      margin-top: 1rem;
+    }
+    
+    /* Main App */
+    .app-container { display: none; }
+    .app-container.show { display: block; }
+    
     .header {
       display: flex;
       justify-content: space-between;
@@ -54,75 +113,24 @@
       background: #4a7c59;
       border-color: #5a9c69;
     }
-    .import-overlay {
+    .header-btn.logout {
+      background: #5c3a3a;
+      border-color: #7c4a4a;
+    }
+    
+    .sync-status {
       display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.8);
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-      padding: 1rem;
-    }
-    .import-overlay.show { display: flex; }
-    .import-container {
-      width: 100%;
-      max-width: 400px;
-      background: #242424;
-      border-radius: 16px;
-      padding: 1.5rem;
-    }
-    .import-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1rem;
-    }
-    .import-title {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: #e0e0e0;
-    }
-    .import-textarea {
-      width: 100%;
-      height: 200px;
-      padding: 0.75rem;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 10px;
-      color: #e0e0e0;
-      font-size: 0.85rem;
-      font-family: monospace;
-      resize: none;
-      outline: none;
-      margin-bottom: 1rem;
-    }
-    .import-note {
+      padding: 0.5rem 1.25rem;
+      background: #2a3a4a;
+      border-bottom: 1px solid #3a4a5a;
       font-size: 0.8rem;
-      color: #888;
-      margin-bottom: 1rem;
+      color: #8ab4f8;
+      text-align: center;
     }
-    .import-buttons {
-      display: flex;
-      gap: 0.75rem;
-    }
-    .import-btn {
-      flex: 1;
-      padding: 0.875rem;
-      border: none;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .import-btn.cancel {
-      background: #333;
-      color: #e0e0e0;
-    }
-    .import-btn.confirm {
-      background: #4a7c59;
-      color: #fff;
-    }
+    .sync-status.show { display: block; }
+    .sync-status.error { background: #4a2a2a; border-color: #5a3a3a; color: #f88a8a; }
+    .sync-status.success { background: #2a4a3a; border-color: #3a5a4a; color: #8af88a; }
+    
     .export-message {
       display: none;
       padding: 0.75rem 1.25rem;
@@ -358,60 +366,148 @@
     .history-chip.selected { background: #4a7c59; border-color: #5a9c69; }
     .history-chip.selected.meds { background: #7c4a6b; border-color: #9c6a8b; }
     .history-chip.selected.symptom { background: #7c5c4a; border-color: #9c7c6a; }
+    .import-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+    }
+    .import-overlay.show { display: flex; }
+    .import-container {
+      width: 100%;
+      max-width: 400px;
+      background: #242424;
+      border-radius: 16px;
+      padding: 1.5rem;
+    }
+    .import-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .import-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #e0e0e0;
+    }
+    .import-textarea {
+      width: 100%;
+      height: 200px;
+      padding: 0.75rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #e0e0e0;
+      font-size: 0.85rem;
+      font-family: monospace;
+      resize: none;
+      outline: none;
+      margin-bottom: 1rem;
+    }
+    .import-note {
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+    .import-buttons {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .import-btn {
+      flex: 1;
+      padding: 0.875rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .import-btn.cancel {
+      background: #333;
+      color: #e0e0e0;
+    }
+    .import-btn.confirm {
+      background: #4a7c59;
+      color: #fff;
+    }
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <header class="header">
-    <h1 class="title">Health Tracker</h1>
-    <div class="header-buttons">
-      <button class="header-btn" onclick="importCSV()">Import</button>
-      <button class="header-btn" onclick="copyToClipboard()">Copy</button>
-      <button class="header-btn primary" onclick="exportCSV()">Export</button>
+
+  <!-- Login Screen -->
+  <div id="loginScreen" class="login-screen">
+    <h1 class="login-title">🩺 Health Tracker</h1>
+    <p class="login-subtitle">Sign in to access your data</p>
+    <button id="loginBtn" class="login-btn" onclick="startGoogleLogin()">
+      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>
+    <p id="loginError" class="login-error" style="display:none;"></p>
+    <p id="loginLoading" class="login-loading" style="display:none;">Signing in...</p>
+  </div>
+
+  <!-- Main App -->
+  <div id="appContainer" class="app-container">
+    <header class="header">
+      <h1 class="title">Health Tracker</h1>
+      <div class="header-buttons">
+        <button class="header-btn" onclick="importCSV()">Import</button>
+        <button class="header-btn" onclick="copyToClipboard()">Copy</button>
+        <button class="header-btn primary" onclick="exportCSV()">Export</button>
+        <button class="header-btn logout" onclick="logout()">Logout</button>
+      </div>
+    </header>
+
+    <div id="syncStatus" class="sync-status"></div>
+    <div id="exportMessage" class="export-message"></div>
+
+    <div id="backupReminder" class="backup-reminder">
+      <span id="backupText">⚠️ No backup yet</span>
+      <button class="backup-btn" onclick="exportCSV()">Backup Now</button>
     </div>
-  </header>
 
-  <div id="exportMessage" class="export-message"></div>
+    <div class="quick-add">
+      <button class="quick-add-btn" data-type="meal" onclick="openForm('meal')">
+        <span class="quick-add-icon">🍽️</span>
+        <span class="quick-add-label">Meal</span>
+      </button>
+      <button class="quick-add-btn" data-type="meds" onclick="openForm('meds')">
+        <span class="quick-add-icon">💊</span>
+        <span class="quick-add-label">Meds</span>
+      </button>
+      <button class="quick-add-btn" data-type="symptom" onclick="openForm('symptom')">
+        <span class="quick-add-icon">🩺</span>
+        <span class="quick-add-label">Symptom</span>
+      </button>
+      <button class="quick-add-btn" data-type="breath" onclick="openForm('breath')">
+        <span class="quick-add-icon">💨</span>
+        <span class="quick-add-label">Breath</span>
+      </button>
+      <button class="quick-add-btn" data-type="stool" onclick="openForm('stool')">
+        <span class="quick-add-icon">📊</span>
+        <span class="quick-add-label">Stool</span>
+      </button>
+      <button class="quick-add-btn" data-type="note" onclick="openForm('note')">
+        <span class="quick-add-icon">📝</span>
+        <span class="quick-add-label">Note</span>
+      </button>
+    </div>
 
-  <div id="backupReminder" class="backup-reminder">
-    <span id="backupText">⚠️ No backup yet</span>
-    <button class="backup-btn" onclick="exportCSV()">Backup Now</button>
-  </div>
-
-  <div class="quick-add">
-    <button class="quick-add-btn" data-type="meal" onclick="openForm('meal')">
-      <span class="quick-add-icon">🍽️</span>
-      <span class="quick-add-label">Meal</span>
-    </button>
-    <button class="quick-add-btn" data-type="meds" onclick="openForm('meds')">
-      <span class="quick-add-icon">💊</span>
-      <span class="quick-add-label">Meds</span>
-    </button>
-    <button class="quick-add-btn" data-type="symptom" onclick="openForm('symptom')">
-      <span class="quick-add-icon">🩺</span>
-      <span class="quick-add-label">Symptom</span>
-    </button>
-    <button class="quick-add-btn" data-type="breath" onclick="openForm('breath')">
-      <span class="quick-add-icon">💨</span>
-      <span class="quick-add-label">Breath</span>
-    </button>
-    <button class="quick-add-btn" data-type="stool" onclick="openForm('stool')">
-      <span class="quick-add-icon">📊</span>
-      <span class="quick-add-label">Stool</span>
-    </button>
-    <button class="quick-add-btn" data-type="note" onclick="openForm('note')">
-      <span class="quick-add-icon">📝</span>
-      <span class="quick-add-label">Note</span>
-    </button>
-  </div>
-
-  <div id="timeline" class="timeline">
-    <div class="empty-state">
-      <p class="empty-text">No entries yet</p>
-      <p class="empty-subtext">Tap a button above to start tracking</p>
+    <div id="timeline" class="timeline">
+      <div class="empty-state">
+        <p class="empty-text">No entries yet</p>
+        <p class="empty-subtext">Tap a button above to start tracking</p>
+      </div>
     </div>
   </div>
 
+  <!-- Import Modal -->
   <div id="importOverlay" class="import-overlay">
     <div class="import-container">
       <div class="import-header">
@@ -427,6 +523,7 @@
     </div>
   </div>
 
+  <!-- Entry Form Modal -->
   <div id="formOverlay" class="form-overlay">
     <div class="form-container">
       <div class="form-header">
@@ -541,10 +638,19 @@
   </div>
 
   <script>
+    // ===========================================
+    // CONFIGURATION - UPDATE THESE VALUES
+    // ===========================================
+    const GOOGLE_CLIENT_ID = '238078542796-p0p2r3r2qkuuhk1d66bnrjnp9sisl52a.apps.googleusercontent.com';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwwmaq0o9_-V0yVj2s4lEQOmzF-D3A2IO5unAbtBc59oeexXv3k0PcxGXXLpPfdptS0/exec';
+    // ===========================================
+
     const BACKUP_DAYS = 1;
     const icons = { meal: '🍽️', meds: '💊', symptom: '🩺', breath: '💨', stool: '📊', note: '📝' };
     const labels = { meal: 'Meal', meds: 'Meds', symptom: 'Symptom', breath: 'Breath Test', stool: 'Stool', note: 'Note' };
     
+    let accessToken = null;
+    let tokenClient = null;
     let entries = [];
     let foodHistory = [];
     let medsHistory = [];
@@ -556,37 +662,168 @@
     let mealItems = [];
     let medsItems = [];
     let symptomItems = [];
+    let saveTimeout = null;
 
-    function init() {
-      const stored = localStorage.getItem('health-entries');
-      if (stored) entries = JSON.parse(stored);
-      const foods = localStorage.getItem('food-history');
-      if (foods) foodHistory = JSON.parse(foods);
-      const meds = localStorage.getItem('meds-history');
-      if (meds) medsHistory = JSON.parse(meds);
-      const symptoms = localStorage.getItem('symptom-history');
-      if (symptoms) symptomHistory = JSON.parse(symptoms);
-      const backup = localStorage.getItem('last-backup');
-      if (backup) lastBackup = new Date(backup);
-      checkBackupReminder();
-      renderTimeline();
+    // Initialize Google Identity Services
+    function initGoogleAuth() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'email profile',
+        callback: handleAuthResponse
+      });
+      
+      // Check for existing token
+      const savedToken = localStorage.getItem('health_access_token');
+      if (savedToken) {
+        accessToken = savedToken;
+        verifyAndLoadData();
+      }
     }
 
-    function save() {
-      localStorage.setItem('health-entries', JSON.stringify(entries));
+    function startGoogleLogin() {
+      document.getElementById('loginError').style.display = 'none';
+      document.getElementById('loginLoading').style.display = 'block';
+      document.getElementById('loginBtn').style.display = 'none';
+      tokenClient.requestAccessToken();
     }
 
-    function saveFoodHistory() {
-      localStorage.setItem('food-history', JSON.stringify(foodHistory));
+    function handleAuthResponse(response) {
+      document.getElementById('loginLoading').style.display = 'none';
+      document.getElementById('loginBtn').style.display = 'flex';
+      
+      if (response.error) {
+        showLoginError('Login failed: ' + response.error);
+        return;
+      }
+      
+      accessToken = response.access_token;
+      localStorage.setItem('health_access_token', accessToken);
+      verifyAndLoadData();
     }
 
-    function saveMedsHistory() {
-      localStorage.setItem('meds-history', JSON.stringify(medsHistory));
+    async function verifyAndLoadData() {
+      showSyncStatus('Verifying...', '');
+      
+      try {
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`);
+        const data = await response.json();
+        
+        if (data.error) {
+          localStorage.removeItem('health_access_token');
+          accessToken = null;
+          showLoginError(data.error);
+          document.getElementById('loginScreen').classList.remove('hidden');
+          document.getElementById('appContainer').classList.remove('show');
+          return;
+        }
+        
+        // Success - show app
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('appContainer').classList.add('show');
+        
+        loadDataFromServer();
+        
+      } catch (e) {
+        showLoginError('Connection error. Please try again.');
+        localStorage.removeItem('health_access_token');
+        accessToken = null;
+      }
     }
 
-    function saveSymptomHistory() {
-      localStorage.setItem('symptom-history', JSON.stringify(symptomHistory));
+    async function loadDataFromServer() {
+      showSyncStatus('Loading data...', '');
+      
+      try {
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
+        const data = await response.json();
+        
+        if (data.error) {
+          showSyncStatus('Error: ' + data.error, 'error');
+          return;
+        }
+        
+        entries = data.entries || [];
+        foodHistory = data.foodHistory || [];
+        medsHistory = data.medsHistory || [];
+        symptomHistory = data.symptomHistory || [];
+        lastBackup = data.lastBackup ? new Date(data.lastBackup) : null;
+        
+        renderTimeline();
+        checkBackupReminder();
+        showSyncStatus('Data loaded ✓', 'success');
+        setTimeout(() => hideSyncStatus(), 2000);
+        
+      } catch (e) {
+        showSyncStatus('Failed to load data', 'error');
+      }
     }
+
+    async function saveDataToServer() {
+      showSyncStatus('Saving...', '');
+      
+      try {
+        const data = {
+          entries: entries,
+          foodHistory: foodHistory,
+          medsHistory: medsHistory,
+          symptomHistory: symptomHistory,
+          lastBackup: lastBackup ? lastBackup.toISOString() : null
+        };
+        
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=saveData&token=${accessToken}&data=${encodeURIComponent(JSON.stringify(data))}`);
+        const result = await response.json();
+        
+        if (result.error) {
+          showSyncStatus('Error: ' + result.error, 'error');
+          return;
+        }
+        
+        showSyncStatus('Saved ✓', 'success');
+        setTimeout(() => hideSyncStatus(), 2000);
+        
+      } catch (e) {
+        showSyncStatus('Failed to save', 'error');
+      }
+    }
+
+    function debouncedSave() {
+      if (saveTimeout) clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => saveDataToServer(), 1000);
+    }
+
+    function showSyncStatus(text, type) {
+      const el = document.getElementById('syncStatus');
+      el.textContent = text;
+      el.className = 'sync-status show' + (type ? ' ' + type : '');
+    }
+
+    function hideSyncStatus() {
+      document.getElementById('syncStatus').classList.remove('show');
+    }
+
+    function showLoginError(msg) {
+      const el = document.getElementById('loginError');
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    function logout() {
+      if (confirm('Sign out? Your data is saved in Google Sheets.')) {
+        localStorage.removeItem('health_access_token');
+        accessToken = null;
+        google.accounts.oauth2.revoke(accessToken);
+        location.reload();
+      }
+    }
+
+    // Wait for Google script to load
+    window.onload = function() {
+      if (typeof google !== 'undefined') {
+        initGoogleAuth();
+      } else {
+        setTimeout(initGoogleAuth, 500);
+      }
+    };
 
     function checkBackupReminder() {
       const reminder = document.getElementById('backupReminder');
@@ -623,12 +860,10 @@
       
       document.getElementById('formTitle').textContent = `${icons[type]} Add ${labels[type]}`;
       
-      // Hide all type-specific fields
       ['mealFields', 'medsFields', 'symptomFields', 'breathFields', 'stoolFields', 'noteFields'].forEach(f => {
         document.getElementById(f).classList.add('hidden');
       });
       
-      // Show relevant fields
       if (type === 'meal') {
         document.getElementById('mealFields').classList.remove('hidden');
         renderFoodHistory();
@@ -685,13 +920,12 @@
       mealItems.push({ id: generateId(), name, qty, unit });
       if (!foodHistory.includes(name)) {
         foodHistory.push(name);
-        saveFoodHistory();
-        renderFoodHistory();
       }
       document.getElementById('newFoodName').value = '';
       document.getElementById('newFoodQty').value = '';
       document.getElementById('newFoodUnit').value = '';
       renderMealItems();
+      renderFoodHistory();
     }
 
     function removeMealItem(id) {
@@ -754,11 +988,10 @@
       medsItems.push({ id: generateId(), name });
       if (!medsHistory.includes(name)) {
         medsHistory.push(name);
-        saveMedsHistory();
-        renderMedsHistory();
       }
       document.getElementById('newMedName').value = '';
       renderMedsItems();
+      renderMedsHistory();
     }
 
     function removeMedItem(id) {
@@ -815,11 +1048,10 @@
       symptomItems.push({ id: generateId(), name });
       if (!symptomHistory.includes(name)) {
         symptomHistory.push(name);
-        saveSymptomHistory();
-        renderSymptomHistory();
       }
       document.getElementById('newSymptomName').value = '';
       renderSymptomItems();
+      renderSymptomHistory();
     }
 
     function removeSymptomItem(id) {
@@ -919,8 +1151,8 @@
       }
       
       entries.sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
-      save();
       renderTimeline();
+      debouncedSave();
       closeForm();
     }
 
@@ -961,8 +1193,8 @@
 
     function deleteEntry(id) {
       entries = entries.filter(e => e.id !== id);
-      save();
       renderTimeline();
+      debouncedSave();
     }
 
     function formatContent(entry) {
@@ -1082,8 +1314,8 @@
 
     function markBackedUp() {
       lastBackup = new Date();
-      localStorage.setItem('last-backup', lastBackup.toISOString());
       checkBackupReminder();
+      debouncedSave();
     }
 
     function importCSV() {
@@ -1109,7 +1341,6 @@
           return;
         }
 
-        // Parse header to find column indices
         const headerLine = lines[0];
         const headers = parseCSVLine(headerLine);
         
@@ -1151,7 +1382,6 @@
 
           if (type === 'meal' && cols[colIndex.meal]) {
             entry.meal = cols[colIndex.meal];
-            // Extract food names for history
             cols[colIndex.meal].split(',').forEach(f => {
               const name = f.trim().split('(')[0].trim();
               if (name) newFoods.add(name);
@@ -1190,20 +1420,14 @@
           return;
         }
 
-        // Update data
         entries = newEntries;
         entries.sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
         foodHistory = Array.from(newFoods);
         medsHistory = Array.from(newMeds);
         symptomHistory = Array.from(newSymptoms);
 
-        // Save everything
-        save();
-        saveFoodHistory();
-        saveMedsHistory();
-        saveSymptomHistory();
-        
         renderTimeline();
+        saveDataToServer();
         closeImport();
         showMessage(`✓ Imported ${newEntries.length} entries!`);
 
@@ -1245,8 +1469,6 @@
       result.push(current);
       return result;
     }
-
-    init();
   </script>
 </body>
 </html>
