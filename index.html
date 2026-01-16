@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Health">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>Health Tracker</title>
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231a1a1a' width='100' height='100' rx='20'/><text y='65' x='50' text-anchor='middle' font-size='50'>🩺</text></svg>">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      background: #242424;
+      border-bottom: 1px solid #333;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding-top: calc(1rem + env(safe-area-inset-top));
+    }
+    .title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      background: linear-gradient(135deg, #7cb88a, #4a9c6d);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .export-btn {
+      padding: 0.5rem 1rem;
+      background: #333;
+      border: 1px solid #444;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .export-message {
+      display: none;
+      padding: 0.75rem 1.25rem;
+      background: #1f3d2a;
+      border-bottom: 1px solid #2d5a3a;
+      font-size: 0.875rem;
+      color: #7cb88a;
+      text-align: center;
+    }
+    .export-message.show { display: block; }
+    .backup-reminder {
+      display: none;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1.25rem;
+      background: #3d2d1f;
+      border-bottom: 1px solid #5c4a3a;
+      font-size: 0.875rem;
+      color: #e8c47c;
+    }
+    .backup-reminder.show { display: flex; }
+    .backup-btn {
+      padding: 0.4rem 0.75rem;
+      background: #5c4a3a;
+      border: none;
+      border-radius: 6px;
+      color: #e8c47c;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .quick-add {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      background: #1f1f1f;
+    }
+    .quick-add-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.875rem 0.5rem;
+      background: #2a2a2a;
+      border: 2px solid;
+      border-radius: 12px;
+      cursor: pointer;
+    }
+    .quick-add-btn[data-type="meal"] { border-color: #4a7c59; }
+    .quick-add-btn[data-type="meds"] { border-color: #7c4a6b; }
+    .quick-add-btn[data-type="symptom"] { border-color: #7c5c4a; }
+    .quick-add-btn[data-type="breath"] { border-color: #4a5c7c; }
+    .quick-add-btn[data-type="stool"] { border-color: #6b6b4a; }
+    .quick-add-btn[data-type="note"] { border-color: #5c5c5c; }
+    .quick-add-icon { font-size: 1.5rem; }
+    .quick-add-label { font-size: 0.75rem; color: #aaa; font-weight: 500; }
+    .timeline { padding: 0.5rem 1.25rem 2rem; }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: #666; }
+    .empty-text { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .empty-subtext { font-size: 0.9rem; color: #555; }
+    .day-group { margin-bottom: 1.5rem; }
+    .date-header {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.75rem;
+      padding-left: 0.25rem;
+    }
+    .entry-card {
+      display: flex;
+      gap: 0.75rem;
+      padding: 0.875rem;
+      background: #252525;
+      border-radius: 10px;
+      margin-bottom: 0.5rem;
+      align-items: flex-start;
+    }
+    .entry-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .entry-icon.meal { background: #4a7c59; }
+    .entry-icon.meds { background: #7c4a6b; }
+    .entry-icon.symptom { background: #7c5c4a; }
+    .entry-icon.breath { background: #4a5c7c; }
+    .entry-icon.stool { background: #6b6b4a; }
+    .entry-icon.note { background: #5c5c5c; }
+    .entry-content { flex: 1; min-width: 0; }
+    .entry-time { font-size: 0.75rem; color: #888; margin-bottom: 0.25rem; }
+    .entry-text { font-size: 0.95rem; color: #e0e0e0; line-height: 1.4; word-break: break-word; }
+    .entry-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
+    .action-btn {
+      padding: 0.35rem;
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      opacity: 0.6;
+    }
+    .form-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      align-items: flex-end;
+      z-index: 100;
+    }
+    .form-overlay.show { display: flex; }
+    .form-container {
+      width: 100%;
+      max-height: 85vh;
+      background: #242424;
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+      padding: 1.5rem;
+      padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+      overflow-y: auto;
+    }
+    .form-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    .form-title { font-size: 1.25rem; font-weight: 600; color: #e0e0e0; }
+    .close-btn {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      background: #333; border: none; border-radius: 50%;
+      color: #888; font-size: 1rem; cursor: pointer;
+    }
+    .form-fields { display: flex; flex-direction: column; gap: 1rem; }
+    .date-time-row, .breath-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .field-group { display: flex; flex-direction: column; gap: 0.4rem; }
+    .label { font-size: 0.8rem; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.03em; }
+    .input, .textarea {
+      padding: 0.875rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #e0e0e0;
+      font-size: 1rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .textarea { resize: vertical; }
+    .rating-buttons { display: flex; gap: 0.5rem; }
+    .rating-btn {
+      flex: 1; padding: 0.75rem;
+      background: #2a2a2a; border: none; border-radius: 8px;
+      color: #888; font-size: 1rem; font-weight: 600; cursor: pointer;
+    }
+    .rating-btn.active { background: #4a7c59; color: #fff; }
+    .submit-btn {
+      width: 100%; padding: 1rem;
+      background: #4a7c59; border: none; border-radius: 12px;
+      color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer;
+      margin-top: 1.5rem;
+    }
+    .items-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .item-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: #1a1a1a;
+      border-radius: 8px;
+    }
+    .item-name { flex: 1; font-size: 0.9rem; color: #e0e0e0; }
+    .add-row { display: flex; gap: 0.5rem; align-items: center; }
+    .food-name-input {
+      flex: 1;
+      padding: 0.75rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .qty-input {
+      width: 50px;
+      padding: 0.75rem 0.5rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      outline: none;
+      text-align: center;
+    }
+    .unit-input {
+      width: 60px;
+      padding: 0.75rem 0.5rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      outline: none;
+      text-align: center;
+    }
+    .add-btn {
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      background: #4a7c59; border: none; border-radius: 8px;
+      color: #fff; font-size: 1.25rem; cursor: pointer;
+    }
+    .remove-btn {
+      width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      background: #5c3a3a; border: none; border-radius: 6px;
+      color: #e88; font-size: 0.8rem; cursor: pointer;
+    }
+    .history-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .history-chip {
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #444;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: #e0e0e0;
+      background: #2a2a2a;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .history-chip.selected { background: #4a7c59; border-color: #5a9c69; }
+    .history-chip.selected.meds { background: #7c4a6b; border-color: #9c6a8b; }
+    .history-chip.selected.symptom { background: #7c5c4a; border-color: #9c7c6a; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1 class="title">Health Tracker</h1>
+    <button class="export-btn" onclick="exportCSV()">Export</button>
+  </header>
+
+  <div id="exportMessage" class="export-message"></div>
+
+  <div id="backupReminder" class="backup-reminder">
+    <span id="backupText">⚠️ No backup yet</span>
+    <button class="backup-btn" onclick="exportCSV()">Backup Now</button>
+  </div>
+
+  <div class="quick-add">
+    <button class="quick-add-btn" data-type="meal" onclick="openForm('meal')">
+      <span class="quick-add-icon">🍽️</span>
+      <span class="quick-add-label">Meal</span>
+    </button>
+    <button class="quick-add-btn" data-type="meds" onclick="openForm('meds')">
+      <span class="quick-add-icon">💊</span>
+      <span class="quick-add-label">Meds</span>
+    </button>
+    <button class="quick-add-btn" data-type="symptom" onclick="openForm('symptom')">
+      <span class="quick-add-icon">🩺</span>
+      <span class="quick-add-label">Symptom</span>
+    </button>
+    <button class="quick-add-btn" data-type="breath" onclick="openForm('breath')">
+      <span class="quick-add-icon">💨</span>
+      <span class="quick-add-label">Breath</span>
+    </button>
+    <button class="quick-add-btn" data-type="stool" onclick="openForm('stool')">
+      <span class="quick-add-icon">📊</span>
+      <span class="quick-add-label">Stool</span>
+    </button>
+    <button class="quick-add-btn" data-type="note" onclick="openForm('note')">
+      <span class="quick-add-icon">📝</span>
+      <span class="quick-add-label">Note</span>
+    </button>
+  </div>
+
+  <div id="timeline" class="timeline">
+    <div class="empty-state">
+      <p class="empty-text">No entries yet</p>
+      <p class="empty-subtext">Tap a button above to start tracking</p>
+    </div>
+  </div>
+
+  <div id="formOverlay" class="form-overlay">
+    <div class="form-container">
+      <div class="form-header">
+        <h3 id="formTitle" class="form-title">Add Entry</h3>
+        <button class="close-btn" onclick="closeForm()">✕</button>
+      </div>
+      <div class="form-fields">
+        <div class="date-time-row">
+          <div class="field-group">
+            <label class="label">Date</label>
+            <input type="date" id="entryDate" class="input">
+          </div>
+          <div class="field-group">
+            <label class="label">Time</label>
+            <input type="time" id="entryTime" class="input">
+          </div>
+        </div>
+
+        <!-- Meal Fields -->
+        <div id="mealFields" class="hidden">
+          <div id="mealItemsList" class="field-group hidden">
+            <label class="label">Current Items</label>
+            <div id="mealItemsContainer" class="items-list"></div>
+          </div>
+          <div class="field-group">
+            <label class="label">Add Food Item</label>
+            <div class="add-row">
+              <input type="text" id="newFoodName" class="food-name-input" placeholder="Food name">
+              <input type="text" id="newFoodQty" class="qty-input" placeholder="Qty">
+              <input type="text" id="newFoodUnit" class="unit-input" placeholder="Unit">
+              <button class="add-btn" onclick="addFoodItem()">+</button>
+            </div>
+          </div>
+          <div id="foodHistoryField" class="field-group hidden">
+            <label class="label">Recent Foods (tap to add)</label>
+            <div id="foodHistoryGrid" class="history-grid"></div>
+          </div>
+        </div>
+
+        <!-- Meds Fields -->
+        <div id="medsFields" class="hidden">
+          <div id="medsItemsList" class="field-group hidden">
+            <label class="label">Current Meds</label>
+            <div id="medsItemsContainer" class="items-list"></div>
+          </div>
+          <div class="field-group">
+            <label class="label">Add Medication</label>
+            <div class="add-row">
+              <input type="text" id="newMedName" class="food-name-input" placeholder="Medication name">
+              <button class="add-btn" onclick="addMedItem()">+</button>
+            </div>
+          </div>
+          <div id="medsHistoryField" class="field-group hidden">
+            <label class="label">Recent Meds (tap to add)</label>
+            <div id="medsHistoryGrid" class="history-grid"></div>
+          </div>
+        </div>
+
+        <!-- Symptom Fields -->
+        <div id="symptomFields" class="hidden">
+          <div id="symptomItemsList" class="field-group hidden">
+            <label class="label">Current Symptoms</label>
+            <div id="symptomItemsContainer" class="items-list"></div>
+          </div>
+          <div class="field-group">
+            <label class="label">Add Symptom</label>
+            <div class="add-row">
+              <input type="text" id="newSymptomName" class="food-name-input" placeholder="Symptom">
+              <button class="add-btn" onclick="addSymptomItem()">+</button>
+            </div>
+          </div>
+          <div id="symptomHistoryField" class="field-group hidden">
+            <label class="label">Recent Symptoms (tap to add)</label>
+            <div id="symptomHistoryGrid" class="history-grid"></div>
+          </div>
+        </div>
+
+        <!-- Breath Fields -->
+        <div id="breathFields" class="breath-fields hidden">
+          <div class="field-group">
+            <label class="label">Hydrogen (ppm)</label>
+            <input type="number" id="hydrogenInput" class="input" placeholder="0">
+          </div>
+          <div class="field-group">
+            <label class="label">Methane (ppm)</label>
+            <input type="number" id="methaneInput" class="input" value="0">
+          </div>
+        </div>
+
+        <!-- Stool Fields -->
+        <div id="stoolFields" class="field-group hidden">
+          <label class="label">Bristol Stool Rating (1-7)</label>
+          <div class="rating-buttons">
+            <button class="rating-btn" onclick="selectRating(1)">1</button>
+            <button class="rating-btn" onclick="selectRating(2)">2</button>
+            <button class="rating-btn" onclick="selectRating(3)">3</button>
+            <button class="rating-btn" onclick="selectRating(4)">4</button>
+            <button class="rating-btn" onclick="selectRating(5)">5</button>
+            <button class="rating-btn" onclick="selectRating(6)">6</button>
+            <button class="rating-btn" onclick="selectRating(7)">7</button>
+          </div>
+        </div>
+
+        <!-- Note Fields -->
+        <div id="noteFields" class="field-group hidden">
+          <label class="label">Notes</label>
+          <textarea id="noteInput" class="textarea" rows="4" placeholder="Any additional notes..."></textarea>
+        </div>
+      </div>
+      <button class="submit-btn" onclick="submitForm()">Add Entry</button>
+    </div>
+  </div>
+
+  <script>
+    const BACKUP_DAYS = 7;
+    const icons = { meal: '🍽️', meds: '💊', symptom: '🩺', breath: '💨', stool: '📊', note: '📝' };
+    const labels = { meal: 'Meal', meds: 'Meds', symptom: 'Symptom', breath: 'Breath Test', stool: 'Stool', note: 'Note' };
+    
+    let entries = [];
+    let foodHistory = [];
+    let medsHistory = [];
+    let symptomHistory = [];
+    let currentType = null;
+    let editingId = null;
+    let selectedRating = null;
+    let lastBackup = null;
+    let mealItems = [];
+    let medsItems = [];
+    let symptomItems = [];
+
+    function init() {
+      const stored = localStorage.getItem('health-entries');
+      if (stored) entries = JSON.parse(stored);
+      const foods = localStorage.getItem('food-history');
+      if (foods) foodHistory = JSON.parse(foods);
+      const meds = localStorage.getItem('meds-history');
+      if (meds) medsHistory = JSON.parse(meds);
+      const symptoms = localStorage.getItem('symptom-history');
+      if (symptoms) symptomHistory = JSON.parse(symptoms);
+      const backup = localStorage.getItem('last-backup');
+      if (backup) lastBackup = new Date(backup);
+      checkBackupReminder();
+      renderTimeline();
+    }
+
+    function save() {
+      localStorage.setItem('health-entries', JSON.stringify(entries));
+    }
+
+    function saveFoodHistory() {
+      localStorage.setItem('food-history', JSON.stringify(foodHistory));
+    }
+
+    function saveMedsHistory() {
+      localStorage.setItem('meds-history', JSON.stringify(medsHistory));
+    }
+
+    function saveSymptomHistory() {
+      localStorage.setItem('symptom-history', JSON.stringify(symptomHistory));
+    }
+
+    function checkBackupReminder() {
+      const reminder = document.getElementById('backupReminder');
+      const text = document.getElementById('backupText');
+      if (lastBackup) {
+        const days = Math.floor((new Date() - lastBackup) / (1000 * 60 * 60 * 24));
+        if (days >= BACKUP_DAYS) {
+          text.textContent = `⚠️ Last backup: ${days} days ago`;
+          reminder.classList.add('show');
+        } else {
+          reminder.classList.remove('show');
+        }
+      } else if (entries.length > 0) {
+        text.textContent = '⚠️ No backup yet';
+        reminder.classList.add('show');
+      }
+    }
+
+    function generateId() {
+      return Math.random().toString(36).substr(2, 9);
+    }
+
+    function openForm(type) {
+      currentType = type;
+      editingId = null;
+      selectedRating = null;
+      mealItems = [];
+      medsItems = [];
+      symptomItems = [];
+      
+      const now = new Date();
+      document.getElementById('entryDate').value = now.toISOString().split('T')[0];
+      document.getElementById('entryTime').value = now.toTimeString().slice(0, 5);
+      
+      document.getElementById('formTitle').textContent = `${icons[type]} Add ${labels[type]}`;
+      
+      // Hide all type-specific fields
+      ['mealFields', 'medsFields', 'symptomFields', 'breathFields', 'stoolFields', 'noteFields'].forEach(f => {
+        document.getElementById(f).classList.add('hidden');
+      });
+      
+      // Show relevant fields
+      if (type === 'meal') {
+        document.getElementById('mealFields').classList.remove('hidden');
+        renderFoodHistory();
+        renderMealItems();
+      }
+      if (type === 'meds') {
+        document.getElementById('medsFields').classList.remove('hidden');
+        renderMedsHistory();
+        renderMedsItems();
+      }
+      if (type === 'symptom') {
+        document.getElementById('symptomFields').classList.remove('hidden');
+        renderSymptomHistory();
+        renderSymptomItems();
+      }
+      if (type === 'breath') {
+        document.getElementById('breathFields').classList.remove('hidden');
+        document.getElementById('hydrogenInput').value = '';
+        document.getElementById('methaneInput').value = '0';
+      }
+      if (type === 'stool') {
+        document.getElementById('stoolFields').classList.remove('hidden');
+        document.querySelectorAll('.rating-btn').forEach(b => b.classList.remove('active'));
+      }
+      if (type === 'note') {
+        document.getElementById('noteFields').classList.remove('hidden');
+        document.getElementById('noteInput').value = '';
+      }
+      
+      clearInputs();
+      document.getElementById('formOverlay').classList.add('show');
+    }
+
+    function closeForm() {
+      document.getElementById('formOverlay').classList.remove('show');
+      currentType = null;
+      editingId = null;
+    }
+
+    function clearInputs() {
+      document.getElementById('newFoodName').value = '';
+      document.getElementById('newFoodQty').value = '';
+      document.getElementById('newFoodUnit').value = '';
+      document.getElementById('newMedName').value = '';
+      document.getElementById('newSymptomName').value = '';
+    }
+
+    // Food/Meal functions
+    function addFoodItem() {
+      const name = document.getElementById('newFoodName').value.trim();
+      if (!name) return;
+      const qty = document.getElementById('newFoodQty').value.trim();
+      const unit = document.getElementById('newFoodUnit').value.trim();
+      mealItems.push({ id: generateId(), name, qty, unit });
+      if (!foodHistory.includes(name)) {
+        foodHistory.push(name);
+        saveFoodHistory();
+        renderFoodHistory();
+      }
+      document.getElementById('newFoodName').value = '';
+      document.getElementById('newFoodQty').value = '';
+      document.getElementById('newFoodUnit').value = '';
+      renderMealItems();
+    }
+
+    function removeMealItem(id) {
+      mealItems = mealItems.filter(m => m.id !== id);
+      renderMealItems();
+      renderFoodHistory();
+    }
+
+    function toggleFoodHistory(name) {
+      const exists = mealItems.find(m => m.name === name);
+      if (exists) {
+        mealItems = mealItems.filter(m => m.name !== name);
+      } else {
+        mealItems.push({ id: generateId(), name, qty: '', unit: '' });
+      }
+      renderMealItems();
+      renderFoodHistory();
+    }
+
+    function renderMealItems() {
+      const container = document.getElementById('mealItemsContainer');
+      const listDiv = document.getElementById('mealItemsList');
+      if (mealItems.length === 0) {
+        listDiv.classList.add('hidden');
+        return;
+      }
+      listDiv.classList.remove('hidden');
+      container.innerHTML = mealItems.map(item => `
+        <div class="item-row">
+          <span class="item-name">${item.name}</span>
+          <input type="text" class="qty-input" value="${item.qty}" placeholder="Qty" onchange="updateMealItem('${item.id}', 'qty', this.value)">
+          <input type="text" class="unit-input" value="${item.unit}" placeholder="Unit" onchange="updateMealItem('${item.id}', 'unit', this.value)">
+          <button class="remove-btn" onclick="removeMealItem('${item.id}')">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function updateMealItem(id, field, value) {
+      mealItems = mealItems.map(m => m.id === id ? { ...m, [field]: value } : m);
+    }
+
+    function renderFoodHistory() {
+      const grid = document.getElementById('foodHistoryGrid');
+      const field = document.getElementById('foodHistoryField');
+      if (foodHistory.length === 0) {
+        field.classList.add('hidden');
+        return;
+      }
+      field.classList.remove('hidden');
+      grid.innerHTML = foodHistory.map(food => {
+        const isSelected = mealItems.some(m => m.name === food);
+        return `<button class="history-chip ${isSelected ? 'selected' : ''}" onclick="toggleFoodHistory('${food}')">${isSelected ? '✓ ' : ''}${food}</button>`;
+      }).join('');
+    }
+
+    // Meds functions
+    function addMedItem() {
+      const name = document.getElementById('newMedName').value.trim();
+      if (!name) return;
+      medsItems.push({ id: generateId(), name });
+      if (!medsHistory.includes(name)) {
+        medsHistory.push(name);
+        saveMedsHistory();
+        renderMedsHistory();
+      }
+      document.getElementById('newMedName').value = '';
+      renderMedsItems();
+    }
+
+    function removeMedItem(id) {
+      medsItems = medsItems.filter(m => m.id !== id);
+      renderMedsItems();
+      renderMedsHistory();
+    }
+
+    function toggleMedsHistory(name) {
+      const exists = medsItems.find(m => m.name === name);
+      if (exists) {
+        medsItems = medsItems.filter(m => m.name !== name);
+      } else {
+        medsItems.push({ id: generateId(), name });
+      }
+      renderMedsItems();
+      renderMedsHistory();
+    }
+
+    function renderMedsItems() {
+      const container = document.getElementById('medsItemsContainer');
+      const listDiv = document.getElementById('medsItemsList');
+      if (medsItems.length === 0) {
+        listDiv.classList.add('hidden');
+        return;
+      }
+      listDiv.classList.remove('hidden');
+      container.innerHTML = medsItems.map(item => `
+        <div class="item-row">
+          <span class="item-name">${item.name}</span>
+          <button class="remove-btn" onclick="removeMedItem('${item.id}')">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function renderMedsHistory() {
+      const grid = document.getElementById('medsHistoryGrid');
+      const field = document.getElementById('medsHistoryField');
+      if (medsHistory.length === 0) {
+        field.classList.add('hidden');
+        return;
+      }
+      field.classList.remove('hidden');
+      grid.innerHTML = medsHistory.map(med => {
+        const isSelected = medsItems.some(m => m.name === med);
+        return `<button class="history-chip meds ${isSelected ? 'selected' : ''}" onclick="toggleMedsHistory('${med}')">${isSelected ? '✓ ' : ''}${med}</button>`;
+      }).join('');
+    }
+
+    // Symptom functions
+    function addSymptomItem() {
+      const name = document.getElementById('newSymptomName').value.trim();
+      if (!name) return;
+      symptomItems.push({ id: generateId(), name });
+      if (!symptomHistory.includes(name)) {
+        symptomHistory.push(name);
+        saveSymptomHistory();
+        renderSymptomHistory();
+      }
+      document.getElementById('newSymptomName').value = '';
+      renderSymptomItems();
+    }
+
+    function removeSymptomItem(id) {
+      symptomItems = symptomItems.filter(s => s.id !== id);
+      renderSymptomItems();
+      renderSymptomHistory();
+    }
+
+    function toggleSymptomHistory(name) {
+      const exists = symptomItems.find(s => s.name === name);
+      if (exists) {
+        symptomItems = symptomItems.filter(s => s.name !== name);
+      } else {
+        symptomItems.push({ id: generateId(), name });
+      }
+      renderSymptomItems();
+      renderSymptomHistory();
+    }
+
+    function renderSymptomItems() {
+      const container = document.getElementById('symptomItemsContainer');
+      const listDiv = document.getElementById('symptomItemsList');
+      if (symptomItems.length === 0) {
+        listDiv.classList.add('hidden');
+        return;
+      }
+      listDiv.classList.remove('hidden');
+      container.innerHTML = symptomItems.map(item => `
+        <div class="item-row">
+          <span class="item-name">${item.name}</span>
+          <button class="remove-btn" onclick="removeSymptomItem('${item.id}')">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function renderSymptomHistory() {
+      const grid = document.getElementById('symptomHistoryGrid');
+      const field = document.getElementById('symptomHistoryField');
+      if (symptomHistory.length === 0) {
+        field.classList.add('hidden');
+        return;
+      }
+      field.classList.remove('hidden');
+      grid.innerHTML = symptomHistory.map(symptom => {
+        const isSelected = symptomItems.some(s => s.name === symptom);
+        return `<button class="history-chip symptom ${isSelected ? 'selected' : ''}" onclick="toggleSymptomHistory('${symptom}')">${isSelected ? '✓ ' : ''}${symptom}</button>`;
+      }).join('');
+    }
+
+    function selectRating(n) {
+      selectedRating = n;
+      document.querySelectorAll('.rating-btn').forEach((b, i) => {
+        b.classList.toggle('active', i + 1 === n);
+      });
+    }
+
+    function submitForm() {
+      const entry = {
+        id: editingId || generateId(),
+        type: currentType,
+        date: document.getElementById('entryDate').value,
+        time: document.getElementById('entryTime').value,
+        createdAt: new Date().toISOString()
+      };
+
+      if (currentType === 'meal') {
+        entry.mealItems = mealItems;
+        entry.meal = mealItems.map(m => {
+          let str = m.name;
+          if (m.qty) str += ` (${m.qty}${m.unit ? ' ' + m.unit : ''})`;
+          return str;
+        }).join(', ');
+      }
+      if (currentType === 'meds') {
+        entry.medsItems = medsItems;
+        entry.meds = medsItems.map(m => m.name).join(', ');
+      }
+      if (currentType === 'symptom') {
+        entry.symptomItems = symptomItems;
+        entry.symptoms = symptomItems.map(s => s.name).join(', ');
+      }
+      if (currentType === 'breath') {
+        entry.hydrogen = document.getElementById('hydrogenInput').value || '0';
+        entry.methane = document.getElementById('methaneInput').value || '0';
+      }
+      if (currentType === 'stool') {
+        entry.stoolRating = selectedRating;
+      }
+      if (currentType === 'note') {
+        entry.notes = document.getElementById('noteInput').value;
+      }
+
+      if (editingId) {
+        entries = entries.map(e => e.id === editingId ? entry : e);
+      } else {
+        entries.push(entry);
+      }
+      
+      entries.sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+      save();
+      renderTimeline();
+      closeForm();
+    }
+
+    function editEntry(id) {
+      const entry = entries.find(e => e.id === id);
+      if (!entry) return;
+      
+      editingId = id;
+      currentType = entry.type;
+      mealItems = entry.mealItems || [];
+      medsItems = entry.medsItems || [];
+      symptomItems = entry.symptomItems || [];
+      
+      openForm(entry.type);
+      document.getElementById('formTitle').textContent = `${icons[entry.type]} Edit ${labels[entry.type]}`;
+      document.getElementById('entryDate').value = entry.date;
+      document.getElementById('entryTime').value = entry.time;
+      
+      if (entry.type === 'meal') {
+        renderMealItems();
+        renderFoodHistory();
+      }
+      if (entry.type === 'meds') {
+        renderMedsItems();
+        renderMedsHistory();
+      }
+      if (entry.type === 'symptom') {
+        renderSymptomItems();
+        renderSymptomHistory();
+      }
+      if (entry.type === 'breath') {
+        document.getElementById('hydrogenInput').value = entry.hydrogen || '';
+        document.getElementById('methaneInput').value = entry.methane || '0';
+      }
+      if (entry.type === 'stool' && entry.stoolRating) selectRating(entry.stoolRating);
+      if (entry.type === 'note') document.getElementById('noteInput').value = entry.notes || '';
+    }
+
+    function deleteEntry(id) {
+      entries = entries.filter(e => e.id !== id);
+      save();
+      renderTimeline();
+    }
+
+    function formatContent(entry) {
+      switch (entry.type) {
+        case 'meal': return entry.meal;
+        case 'meds': return entry.meds;
+        case 'symptom': return entry.symptoms;
+        case 'breath': return `H₂: ${entry.hydrogen || '0'} | CH₄: ${entry.methane || '0'}`;
+        case 'stool': return `Rating: ${entry.stoolRating}/7`;
+        case 'note': return entry.notes;
+        default: return '';
+      }
+    }
+
+    function renderTimeline() {
+      const timeline = document.getElementById('timeline');
+      
+      if (entries.length === 0) {
+        timeline.innerHTML = `
+          <div class="empty-state">
+            <p class="empty-text">No entries yet</p>
+            <p class="empty-subtext">Tap a button above to start tracking</p>
+          </div>
+        `;
+        return;
+      }
+
+      const groups = {};
+      entries.forEach(e => {
+        if (!groups[e.date]) groups[e.date] = [];
+        groups[e.date].push(e);
+      });
+
+      const sortedDates = Object.keys(groups).sort((a, b) => new Date(b) - new Date(a));
+      
+      let html = '';
+      sortedDates.forEach(date => {
+        const dayEntries = groups[date].sort((a, b) => b.time.localeCompare(a.time));
+        const formatted = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric'
+        });
+        
+        html += `<div class="day-group"><div class="date-header">${formatted}</div>`;
+        
+        dayEntries.forEach(entry => {
+          html += `
+            <div class="entry-card">
+              <div class="entry-icon ${entry.type}">${icons[entry.type]}</div>
+              <div class="entry-content">
+                <div class="entry-time">${entry.time}</div>
+                <div class="entry-text">${formatContent(entry)}</div>
+              </div>
+              <div class="entry-actions">
+                <button class="action-btn" onclick="editEntry('${entry.id}')">✏️</button>
+                <button class="action-btn" onclick="deleteEntry('${entry.id}')">🗑️</button>
+              </div>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+      });
+      
+      timeline.innerHTML = html;
+    }
+
+    function exportCSV() {
+      const headers = ['EventID', 'Date', 'Time', 'Type', 'MEAL', 'MEDS', 'Symptoms', 'Notes', 'Stool Rating', 'Hydrogen', 'Methane'];
+      const rows = entries.map(e => [
+        e.id, e.date, e.time, e.type,
+        e.meal || '', e.meds || '', e.symptoms || '', e.notes || '',
+        e.stoolRating || '', e.hydrogen || '', e.methane || ''
+      ]);
+      
+      const escapeCell = (cell) => {
+        let str = String(cell);
+        str = str.replace(/[\r\n]+/g, ' ');
+        str = str.replace(/"/g, '""');
+        return `"${str}"`;
+      };
+      
+      const csv = [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\n');
+      
+      navigator.clipboard.writeText(csv).then(() => {
+        const msg = document.getElementById('exportMessage');
+        msg.textContent = '✓ Copied to clipboard! Paste into Notes or a spreadsheet.';
+        msg.classList.add('show');
+        setTimeout(() => msg.classList.remove('show'), 3000);
+        
+        lastBackup = new Date();
+        localStorage.setItem('last-backup', lastBackup.toISOString());
+        checkBackupReminder();
+      }).catch(() => {
+        const msg = document.getElementById('exportMessage');
+        msg.textContent = 'Could not copy. Try again.';
+        msg.classList.add('show');
+        setTimeout(() => msg.classList.remove('show'), 3000);
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
