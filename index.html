@@ -37,14 +37,91 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-    .export-btn {
-      padding: 0.5rem 1rem;
+    .header-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .header-btn {
+      padding: 0.4rem 0.7rem;
       background: #333;
       border: 1px solid #444;
-      border-radius: 8px;
+      border-radius: 6px;
       color: #e0e0e0;
-      font-size: 0.875rem;
+      font-size: 0.75rem;
       cursor: pointer;
+    }
+    .header-btn.primary {
+      background: #4a7c59;
+      border-color: #5a9c69;
+    }
+    .import-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 1rem;
+    }
+    .import-overlay.show { display: flex; }
+    .import-container {
+      width: 100%;
+      max-width: 400px;
+      background: #242424;
+      border-radius: 16px;
+      padding: 1.5rem;
+    }
+    .import-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .import-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #e0e0e0;
+    }
+    .import-textarea {
+      width: 100%;
+      height: 200px;
+      padding: 0.75rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #e0e0e0;
+      font-size: 0.85rem;
+      font-family: monospace;
+      resize: none;
+      outline: none;
+      margin-bottom: 1rem;
+    }
+    .import-note {
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 1rem;
+    }
+    .import-buttons {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .import-btn {
+      flex: 1;
+      padding: 0.875rem;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .import-btn.cancel {
+      background: #333;
+      color: #e0e0e0;
+    }
+    .import-btn.confirm {
+      background: #4a7c59;
+      color: #fff;
     }
     .export-message {
       display: none;
@@ -287,7 +364,11 @@
 <body>
   <header class="header">
     <h1 class="title">Health Tracker</h1>
-    <button class="export-btn" onclick="exportCSV()">Export</button>
+    <div class="header-buttons">
+      <button class="header-btn" onclick="importCSV()">Import</button>
+      <button class="header-btn" onclick="copyToClipboard()">Copy</button>
+      <button class="header-btn primary" onclick="exportCSV()">Export</button>
+    </div>
   </header>
 
   <div id="exportMessage" class="export-message"></div>
@@ -328,6 +409,21 @@
     <div class="empty-state">
       <p class="empty-text">No entries yet</p>
       <p class="empty-subtext">Tap a button above to start tracking</p>
+    </div>
+  </div>
+
+  <div id="importOverlay" class="import-overlay">
+    <div class="import-container">
+      <div class="import-header">
+        <h3 class="import-title">📥 Import Data</h3>
+        <button class="close-btn" onclick="closeImport()">✕</button>
+      </div>
+      <textarea id="importTextarea" class="import-textarea" placeholder="Paste your CSV backup here..."></textarea>
+      <p class="import-note">⚠️ This will replace all current data. Make sure you've exported first if needed.</p>
+      <div class="import-buttons">
+        <button class="import-btn cancel" onclick="closeImport()">Cancel</button>
+        <button class="import-btn confirm" onclick="confirmImport()">Import</button>
+      </div>
     </div>
   </div>
 
@@ -445,7 +541,7 @@
   </div>
 
   <script>
-    const BACKUP_DAYS = 7;
+    const BACKUP_DAYS = 1;
     const icons = { meal: '🍽️', meds: '💊', symptom: '🩺', breath: '💨', stool: '📊', note: '📝' };
     const labels = { meal: 'Meal', meds: 'Meds', symptom: 'Symptom', breath: 'Breath Test', stool: 'Stool', note: 'Note' };
     
@@ -933,7 +1029,7 @@
       timeline.innerHTML = html;
     }
 
-    function exportCSV() {
+    function generateCSV() {
       const headers = ['EventID', 'Date', 'Time', 'Type', 'MEAL', 'MEDS', 'Symptoms', 'Notes', 'Stool Rating', 'Hydrogen', 'Methane'];
       const rows = entries.map(e => [
         e.id, e.date, e.time, e.type,
@@ -948,23 +1044,206 @@
         return `"${str}"`;
       };
       
-      const csv = [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\n');
+      return [headers, ...rows].map(row => row.map(escapeCell).join(',')).join('\n');
+    }
+
+    function exportCSV() {
+      const csv = generateCSV();
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `health-tracker-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       
+      showMessage('✓ CSV file downloaded!');
+      markBackedUp();
+    }
+
+    function copyToClipboard() {
+      const csv = generateCSV();
       navigator.clipboard.writeText(csv).then(() => {
-        const msg = document.getElementById('exportMessage');
-        msg.textContent = '✓ Copied to clipboard! Paste into Notes or a spreadsheet.';
-        msg.classList.add('show');
-        setTimeout(() => msg.classList.remove('show'), 3000);
-        
-        lastBackup = new Date();
-        localStorage.setItem('last-backup', lastBackup.toISOString());
-        checkBackupReminder();
+        showMessage('✓ Copied to clipboard!');
+        markBackedUp();
       }).catch(() => {
-        const msg = document.getElementById('exportMessage');
-        msg.textContent = 'Could not copy. Try again.';
-        msg.classList.add('show');
-        setTimeout(() => msg.classList.remove('show'), 3000);
+        showMessage('Could not copy. Try Export instead.');
       });
+    }
+
+    function showMessage(text) {
+      const msg = document.getElementById('exportMessage');
+      msg.textContent = text;
+      msg.classList.add('show');
+      setTimeout(() => msg.classList.remove('show'), 3000);
+    }
+
+    function markBackedUp() {
+      lastBackup = new Date();
+      localStorage.setItem('last-backup', lastBackup.toISOString());
+      checkBackupReminder();
+    }
+
+    function importCSV() {
+      document.getElementById('importTextarea').value = '';
+      document.getElementById('importOverlay').classList.add('show');
+    }
+
+    function closeImport() {
+      document.getElementById('importOverlay').classList.remove('show');
+    }
+
+    function confirmImport() {
+      const csv = document.getElementById('importTextarea').value.trim();
+      if (!csv) {
+        showMessage('Please paste CSV data first.');
+        return;
+      }
+
+      try {
+        const lines = csv.split('\n');
+        if (lines.length < 2) {
+          showMessage('Invalid CSV: no data rows found.');
+          return;
+        }
+
+        // Parse header to find column indices
+        const headerLine = lines[0];
+        const headers = parseCSVLine(headerLine);
+        
+        const colIndex = {
+          id: headers.findIndex(h => h.toLowerCase().includes('eventid')),
+          date: headers.findIndex(h => h.toLowerCase() === 'date'),
+          time: headers.findIndex(h => h.toLowerCase() === 'time'),
+          type: headers.findIndex(h => h.toLowerCase() === 'type'),
+          meal: headers.findIndex(h => h.toLowerCase() === 'meal'),
+          meds: headers.findIndex(h => h.toLowerCase() === 'meds'),
+          symptoms: headers.findIndex(h => h.toLowerCase() === 'symptoms'),
+          notes: headers.findIndex(h => h.toLowerCase() === 'notes'),
+          stoolRating: headers.findIndex(h => h.toLowerCase().includes('stool')),
+          hydrogen: headers.findIndex(h => h.toLowerCase() === 'hydrogen'),
+          methane: headers.findIndex(h => h.toLowerCase() === 'methane')
+        };
+
+        const newEntries = [];
+        const newFoods = new Set(foodHistory);
+        const newMeds = new Set(medsHistory);
+        const newSymptoms = new Set(symptomHistory);
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const cols = parseCSVLine(line);
+          const type = cols[colIndex.type] || '';
+          
+          if (!type) continue;
+
+          const entry = {
+            id: cols[colIndex.id] || generateId(),
+            type: type,
+            date: cols[colIndex.date] || '',
+            time: cols[colIndex.time] || '',
+            createdAt: new Date().toISOString()
+          };
+
+          if (type === 'meal' && cols[colIndex.meal]) {
+            entry.meal = cols[colIndex.meal];
+            // Extract food names for history
+            cols[colIndex.meal].split(',').forEach(f => {
+              const name = f.trim().split('(')[0].trim();
+              if (name) newFoods.add(name);
+            });
+          }
+          if (type === 'meds' && cols[colIndex.meds]) {
+            entry.meds = cols[colIndex.meds];
+            cols[colIndex.meds].split(',').forEach(m => {
+              const name = m.trim();
+              if (name) newMeds.add(name);
+            });
+          }
+          if (type === 'symptom' && cols[colIndex.symptoms]) {
+            entry.symptoms = cols[colIndex.symptoms];
+            cols[colIndex.symptoms].split(',').forEach(s => {
+              const name = s.trim();
+              if (name) newSymptoms.add(name);
+            });
+          }
+          if (type === 'breath') {
+            entry.hydrogen = cols[colIndex.hydrogen] || '0';
+            entry.methane = cols[colIndex.methane] || '0';
+          }
+          if (type === 'stool') {
+            entry.stoolRating = parseInt(cols[colIndex.stoolRating]) || null;
+          }
+          if (type === 'note') {
+            entry.notes = cols[colIndex.notes] || '';
+          }
+
+          newEntries.push(entry);
+        }
+
+        if (newEntries.length === 0) {
+          showMessage('No valid entries found in CSV.');
+          return;
+        }
+
+        // Update data
+        entries = newEntries;
+        entries.sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+        foodHistory = Array.from(newFoods);
+        medsHistory = Array.from(newMeds);
+        symptomHistory = Array.from(newSymptoms);
+
+        // Save everything
+        save();
+        saveFoodHistory();
+        saveMedsHistory();
+        saveSymptomHistory();
+        
+        renderTimeline();
+        closeImport();
+        showMessage(`✓ Imported ${newEntries.length} entries!`);
+
+      } catch (e) {
+        console.error(e);
+        showMessage('Error parsing CSV. Check format.');
+      }
+    }
+
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const nextChar = line[i + 1];
+        
+        if (inQuotes) {
+          if (char === '"' && nextChar === '"') {
+            current += '"';
+            i++;
+          } else if (char === '"') {
+            inQuotes = false;
+          } else {
+            current += char;
+          }
+        } else {
+          if (char === '"') {
+            inQuotes = true;
+          } else if (char === ',') {
+            result.push(current);
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+      }
+      result.push(current);
+      return result;
     }
 
     init();
