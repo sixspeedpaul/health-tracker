@@ -141,27 +141,7 @@
       text-align: center;
     }
     .export-message.show { display: block; }
-    .backup-reminder {
-      display: none;
-      justify-content: space-between;
-      align-items: center;
-      padding: 0.75rem 1.25rem;
-      background: #3d2d1f;
-      border-bottom: 1px solid #5c4a3a;
-      font-size: 0.875rem;
-      color: #e8c47c;
-    }
-    .backup-reminder.show { display: flex; }
-    .backup-btn {
-      padding: 0.4rem 0.75rem;
-      background: #5c4a3a;
-      border: none;
-      border-radius: 6px;
-      color: #e8c47c;
-      font-size: 0.8rem;
-      cursor: pointer;
-      font-weight: 500;
-    }
+    
     .quick-add {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -252,19 +232,18 @@
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.8);
-      align-items: flex-end;
+      align-items: flex-start;
       z-index: 100;
+      overflow-y: auto;
     }
     .form-overlay.show { display: flex; }
     .form-container {
       width: 100%;
-      max-height: 85vh;
+      min-height: 100vh;
       background: #242424;
-      border-top-left-radius: 20px;
-      border-top-right-radius: 20px;
       padding: 1.5rem;
-      padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
-      overflow-y: auto;
+      padding-top: calc(1.5rem + env(safe-area-inset-top));
+      padding-bottom: calc(100px + env(safe-area-inset-bottom));
     }
     .form-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
     .form-title { font-size: 1.25rem; font-weight: 600; color: #e0e0e0; }
@@ -484,11 +463,6 @@
     <div id="syncStatus" class="sync-status"></div>
     <div id="exportMessage" class="export-message"></div>
 
-    <div id="backupReminder" class="backup-reminder">
-      <span id="backupText">⚠️ No backup yet</span>
-      <button class="backup-btn" onclick="exportCSV()">Backup Now</button>
-    </div>
-
     <div class="quick-add">
       <button class="quick-add-btn" data-type="meal" onclick="openForm('meal')">
         <span class="quick-add-icon">🍽️</span>
@@ -662,7 +636,6 @@
     const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwwmaq0o9_-V0yVj2s4lEQOmzF-D3A2IO5unAbtBc59oeexXv3k0PcxGXXLpPfdptS0/exec';
     // ===========================================
 
-    const BACKUP_DAYS = 1;
     const icons = { meal: '🍽️', meds: '💊', symptom: '🩺', breath: '💨', stool: '💩', note: '📝' };
     const labels = { meal: 'Meal', meds: 'Meds', symptom: 'Symptom', breath: 'Breath Test', stool: 'Stool', note: 'Note' };
     
@@ -675,7 +648,6 @@
     let currentType = null;
     let editingId = null;
     let selectedRating = null;
-    let lastBackup = null;
     let mealItems = [];
     let medsItems = [];
     let symptomItems = [];
@@ -763,10 +735,8 @@
         foodHistory = data.foodHistory || [];
         medsHistory = data.medsHistory || [];
         symptomHistory = data.symptomHistory || [];
-        lastBackup = data.lastBackup ? new Date(data.lastBackup) : null;
         
         renderTimeline();
-        checkBackupReminder();
         showSyncStatus('Data loaded ✓', 'success');
         setTimeout(() => hideSyncStatus(), 2000);
         
@@ -783,8 +753,7 @@
           entries: entries,
           foodHistory: foodHistory,
           medsHistory: medsHistory,
-          symptomHistory: symptomHistory,
-          lastBackup: lastBackup ? lastBackup.toISOString() : null
+          symptomHistory: symptomHistory
         };
         
         // Use a form-based approach that works with Google Apps Script
@@ -849,24 +818,16 @@
       } else {
         setTimeout(initGoogleAuth, 500);
       }
-    };
-
-    function checkBackupReminder() {
-      const reminder = document.getElementById('backupReminder');
-      const text = document.getElementById('backupText');
-      if (lastBackup) {
-        const days = Math.floor((new Date() - lastBackup) / (1000 * 60 * 60 * 24));
-        if (days >= BACKUP_DAYS) {
-          text.textContent = `⚠️ Last backup: ${days} days ago`;
-          reminder.classList.add('show');
-        } else {
-          reminder.classList.remove('show');
+      
+      // Scroll input into view when focused (for mobile keyboard)
+      document.addEventListener('focusin', function(e) {
+        if (e.target.matches('input, textarea')) {
+          setTimeout(() => {
+            e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 300);
         }
-      } else if (entries.length > 0) {
-        text.textContent = '⚠️ No backup yet';
-        reminder.classList.add('show');
-      }
-    }
+      });
+    };
 
     function generateId() {
       return Math.random().toString(36).substr(2, 9);
@@ -1351,14 +1312,12 @@
       URL.revokeObjectURL(url);
       
       showMessage('✓ CSV file downloaded!');
-      markBackedUp();
     }
 
     function copyToClipboard() {
       const csv = generateCSV();
       navigator.clipboard.writeText(csv).then(() => {
         showMessage('✓ Copied to clipboard!');
-        markBackedUp();
       }).catch(() => {
         showMessage('Could not copy. Try Export instead.');
       });
@@ -1369,12 +1328,6 @@
       msg.textContent = text;
       msg.classList.add('show');
       setTimeout(() => msg.classList.remove('show'), 3000);
-    }
-
-    function markBackedUp() {
-      lastBackup = new Date();
-      checkBackupReminder();
-      debouncedSave();
     }
 
     function importCSV() {
