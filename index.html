@@ -339,10 +339,20 @@
       text-align: center;
     }
     .add-btn {
-      width: 40px; height: 40px;
-      display: flex; align-items: center; justify-content: center;
-      background: #4a7c59; border: none; border-radius: 8px;
-      color: #fff; font-size: 1.25rem; cursor: pointer;
+      min-width: 48px; 
+      width: 48px; 
+      height: 48px;
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+      background: #4a7c59; 
+      border: none; 
+      border-radius: 10px;
+      color: #fff; 
+      font-size: 1.5rem; 
+      font-weight: bold;
+      cursor: pointer;
+      flex-shrink: 0;
     }
     .remove-btn {
       width: 28px; height: 28px;
@@ -551,7 +561,7 @@
           <div class="field-group">
             <label class="label">Add Food Item</label>
             <div class="add-row">
-              <input type="text" id="newFoodName" class="food-name-input" placeholder="Food name">
+              <input type="text" id="newFoodName" class="food-name-input" placeholder="Food name" oninput="filterFoodHistory(this.value)">
               <input type="text" id="newFoodQty" class="qty-input" placeholder="Qty">
               <input type="text" id="newFoodUnit" class="unit-input" placeholder="Unit">
               <button class="add-btn" onclick="addFoodItem()">+</button>
@@ -572,7 +582,7 @@
           <div class="field-group">
             <label class="label">Add Medication</label>
             <div class="add-row">
-              <input type="text" id="newMedName" class="food-name-input" placeholder="Medication name">
+              <input type="text" id="newMedName" class="food-name-input" placeholder="Medication name" oninput="filterMedsHistory(this.value)">
               <button class="add-btn" onclick="addMedItem()">+</button>
             </div>
           </div>
@@ -591,7 +601,7 @@
           <div class="field-group">
             <label class="label">Add Symptom</label>
             <div class="add-row">
-              <input type="text" id="newSymptomName" class="food-name-input" placeholder="Symptom">
+              <input type="text" id="newSymptomName" class="food-name-input" placeholder="Symptom" oninput="filterSymptomHistory(this.value)">
               <button class="add-btn" onclick="addSymptomItem()">+</button>
             </div>
           </div>
@@ -639,10 +649,10 @@
 
   <script>
     // ===========================================
-    // CONFIGURATION - UPDATE THESE VALUES
+    // CONFIGURATION
     // ===========================================
     const GOOGLE_CLIENT_ID = '238078542796-p0p2r3r2qkuuhk1d66bnrjnp9sisl52a.apps.googleusercontent.com';
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwwmaq0o9_-V0yVj2s4lEQOmzF-D3A2IO5unAbtBc59oeexXv3k0PcxGXXLpPfdptS0/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/library/d/1cpIt6uUgZSrc04ZH-y26O7Z2MlnCHSvEh8PrdebezJpG_dyl1tP24zBl/3';
     // ===========================================
 
     const BACKUP_DAYS = 1;
@@ -979,15 +989,26 @@
     function renderFoodHistory() {
       const grid = document.getElementById('foodHistoryGrid');
       const field = document.getElementById('foodHistoryField');
-      if (foodHistory.length === 0) {
+      const filterText = (document.getElementById('newFoodName').value || '').toLowerCase();
+      
+      // Filter history based on input
+      const filteredHistory = foodHistory.filter(food => 
+        food.toLowerCase().includes(filterText)
+      );
+      
+      if (filteredHistory.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = foodHistory.map(food => {
+      grid.innerHTML = filteredHistory.map(food => {
         const isSelected = mealItems.some(m => m.name === food);
-        return `<button class="history-chip ${isSelected ? 'selected' : ''}" onclick="toggleFoodHistory('${food}')">${isSelected ? '✓ ' : ''}${food}</button>`;
+        return `<button class="history-chip ${isSelected ? 'selected' : ''}" onclick="toggleFoodHistory('${food.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${food}</button>`;
       }).join('');
+    }
+
+    function filterFoodHistory(value) {
+      renderFoodHistory();
     }
 
     // Meds functions
@@ -1039,15 +1060,26 @@
     function renderMedsHistory() {
       const grid = document.getElementById('medsHistoryGrid');
       const field = document.getElementById('medsHistoryField');
-      if (medsHistory.length === 0) {
+      const filterText = (document.getElementById('newMedName').value || '').toLowerCase();
+      
+      // Filter history based on input
+      const filteredHistory = medsHistory.filter(med => 
+        med.toLowerCase().includes(filterText)
+      );
+      
+      if (filteredHistory.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = medsHistory.map(med => {
+      grid.innerHTML = filteredHistory.map(med => {
         const isSelected = medsItems.some(m => m.name === med);
-        return `<button class="history-chip meds ${isSelected ? 'selected' : ''}" onclick="toggleMedsHistory('${med}')">${isSelected ? '✓ ' : ''}${med}</button>`;
+        return `<button class="history-chip meds ${isSelected ? 'selected' : ''}" onclick="toggleMedsHistory('${med.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${med}</button>`;
       }).join('');
+    }
+
+    function filterMedsHistory(value) {
+      renderMedsHistory();
     }
 
     // Symptom functions
@@ -1099,15 +1131,26 @@
     function renderSymptomHistory() {
       const grid = document.getElementById('symptomHistoryGrid');
       const field = document.getElementById('symptomHistoryField');
-      if (symptomHistory.length === 0) {
+      const filterText = (document.getElementById('newSymptomName').value || '').toLowerCase();
+      
+      // Filter history based on input
+      const filteredHistory = symptomHistory.filter(symptom => 
+        symptom.toLowerCase().includes(filterText)
+      );
+      
+      if (filteredHistory.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = symptomHistory.map(symptom => {
+      grid.innerHTML = filteredHistory.map(symptom => {
         const isSelected = symptomItems.some(s => s.name === symptom);
-        return `<button class="history-chip symptom ${isSelected ? 'selected' : ''}" onclick="toggleSymptomHistory('${symptom}')">${isSelected ? '✓ ' : ''}${symptom}</button>`;
+        return `<button class="history-chip symptom ${isSelected ? 'selected' : ''}" onclick="toggleSymptomHistory('${symptom.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${symptom}</button>`;
       }).join('');
+    }
+
+    function filterSymptomHistory(value) {
+      renderSymptomHistory();
     }
 
     function selectRating(n) {
