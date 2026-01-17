@@ -949,22 +949,26 @@
       return Math.random().toString(36).substr(2, 9);
     }
 
-    function openForm(type) {
+    function openForm(type, isEdit = false) {
       currentType = type;
-      editingId = null;
+      if (!isEdit) {
+        editingId = null;
+        mealItems = [];
+        medsItems = [];
+        symptomItems = [];
+      }
       selectedRating = null;
-      mealItems = [];
-      medsItems = [];
-      symptomItems = [];
       
-      const now = new Date();
-      const localDate = now.getFullYear() + '-' + 
-        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-        String(now.getDate()).padStart(2, '0');
-      const localTime = String(now.getHours()).padStart(2, '0') + ':' + 
-        String(now.getMinutes()).padStart(2, '0');
-      document.getElementById('entryDate').value = localDate;
-      document.getElementById('entryTime').value = localTime;
+      if (!isEdit) {
+        const now = new Date();
+        const localDate = now.getFullYear() + '-' + 
+          String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+          String(now.getDate()).padStart(2, '0');
+        const localTime = String(now.getHours()).padStart(2, '0') + ':' + 
+          String(now.getMinutes()).padStart(2, '0');
+        document.getElementById('entryDate').value = localDate;
+        document.getElementById('entryTime').value = localTime;
+      }
       
       document.getElementById('formTitle').textContent = `${icons[type]} Add ${labels[type]}`;
       
@@ -1080,17 +1084,31 @@
       const field = document.getElementById('foodHistoryField');
       const filterText = (document.getElementById('newFoodName').value || '').toLowerCase();
       
-      // Filter history based on input
-      const filteredHistory = foodHistory.filter(food => 
-        food.toLowerCase().includes(filterText)
-      );
+      // Count frequency of each food in entries
+      const foodCounts = {};
+      entries.forEach(e => {
+        if (e.type === 'meal' && e.meal) {
+          e.meal.split(',').forEach(item => {
+            const name = item.trim().split('(')[0].trim();
+            if (name) {
+              foodCounts[name] = (foodCounts[name] || 0) + 1;
+            }
+          });
+        }
+      });
       
-      if (filteredHistory.length === 0) {
+      // Sort by frequency and take top 10
+      const sortedFoods = foodHistory
+        .filter(food => food.toLowerCase().includes(filterText))
+        .sort((a, b) => (foodCounts[b] || 0) - (foodCounts[a] || 0))
+        .slice(0, 10);
+      
+      if (sortedFoods.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = filteredHistory.map(food => {
+      grid.innerHTML = sortedFoods.map(food => {
         const isSelected = mealItems.some(m => m.name === food);
         return `<button class="history-chip ${isSelected ? 'selected' : ''}" onclick="toggleFoodHistory('${food.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${food}</button>`;
       }).join('');
@@ -1151,17 +1169,31 @@
       const field = document.getElementById('medsHistoryField');
       const filterText = (document.getElementById('newMedName').value || '').toLowerCase();
       
-      // Filter history based on input
-      const filteredHistory = medsHistory.filter(med => 
-        med.toLowerCase().includes(filterText)
-      );
+      // Count frequency of each med in entries
+      const medCounts = {};
+      entries.forEach(e => {
+        if (e.type === 'meds' && e.meds) {
+          e.meds.split(',').forEach(item => {
+            const name = item.trim();
+            if (name) {
+              medCounts[name] = (medCounts[name] || 0) + 1;
+            }
+          });
+        }
+      });
       
-      if (filteredHistory.length === 0) {
+      // Sort by frequency and take top 10
+      const sortedMeds = medsHistory
+        .filter(med => med.toLowerCase().includes(filterText))
+        .sort((a, b) => (medCounts[b] || 0) - (medCounts[a] || 0))
+        .slice(0, 10);
+      
+      if (sortedMeds.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = filteredHistory.map(med => {
+      grid.innerHTML = sortedMeds.map(med => {
         const isSelected = medsItems.some(m => m.name === med);
         return `<button class="history-chip meds ${isSelected ? 'selected' : ''}" onclick="toggleMedsHistory('${med.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${med}</button>`;
       }).join('');
@@ -1222,17 +1254,31 @@
       const field = document.getElementById('symptomHistoryField');
       const filterText = (document.getElementById('newSymptomName').value || '').toLowerCase();
       
-      // Filter history based on input
-      const filteredHistory = symptomHistory.filter(symptom => 
-        symptom.toLowerCase().includes(filterText)
-      );
+      // Count frequency of each symptom in entries
+      const symptomCounts = {};
+      entries.forEach(e => {
+        if (e.type === 'symptom' && e.symptoms) {
+          e.symptoms.split(',').forEach(item => {
+            const name = item.trim();
+            if (name) {
+              symptomCounts[name] = (symptomCounts[name] || 0) + 1;
+            }
+          });
+        }
+      });
       
-      if (filteredHistory.length === 0) {
+      // Sort by frequency and take top 10
+      const sortedSymptoms = symptomHistory
+        .filter(symptom => symptom.toLowerCase().includes(filterText))
+        .sort((a, b) => (symptomCounts[b] || 0) - (symptomCounts[a] || 0))
+        .slice(0, 10);
+      
+      if (sortedSymptoms.length === 0) {
         field.classList.add('hidden');
         return;
       }
       field.classList.remove('hidden');
-      grid.innerHTML = filteredHistory.map(symptom => {
+      grid.innerHTML = sortedSymptoms.map(symptom => {
         const isSelected = symptomItems.some(s => s.name === symptom);
         return `<button class="history-chip symptom ${isSelected ? 'selected' : ''}" onclick="toggleSymptomHistory('${symptom.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${symptom}</button>`;
       }).join('');
@@ -1303,11 +1349,69 @@
       
       editingId = id;
       currentType = entry.type;
-      mealItems = entry.mealItems || [];
-      medsItems = entry.medsItems || [];
-      symptomItems = entry.symptomItems || [];
       
-      openForm(entry.type);
+      // Parse meal string back into items if mealItems not available
+      if (entry.type === 'meal') {
+        if (entry.mealItems && entry.mealItems.length > 0) {
+          mealItems = entry.mealItems;
+        } else if (entry.meal) {
+          // Parse "Food Name (qty unit), Food Name 2" format
+          mealItems = entry.meal.split(',').map(item => {
+            const trimmed = item.trim();
+            const match = trimmed.match(/^(.+?)\s*(?:\(([^)]*)\))?$/);
+            if (match) {
+              const name = match[1].trim();
+              const qtyUnit = match[2] ? match[2].trim() : '';
+              const qtyMatch = qtyUnit.match(/^(\S+)\s*(.*)$/);
+              return {
+                id: generateId(),
+                name: name,
+                qty: qtyMatch ? qtyMatch[1] : '',
+                unit: qtyMatch ? qtyMatch[2] : ''
+              };
+            }
+            return { id: generateId(), name: trimmed, qty: '', unit: '' };
+          }).filter(m => m.name);
+        } else {
+          mealItems = [];
+        }
+      } else {
+        mealItems = [];
+      }
+      
+      // Parse meds string back into items
+      if (entry.type === 'meds') {
+        if (entry.medsItems && entry.medsItems.length > 0) {
+          medsItems = entry.medsItems;
+        } else if (entry.meds) {
+          medsItems = entry.meds.split(',').map(item => ({
+            id: generateId(),
+            name: item.trim()
+          })).filter(m => m.name);
+        } else {
+          medsItems = [];
+        }
+      } else {
+        medsItems = [];
+      }
+      
+      // Parse symptom string back into items
+      if (entry.type === 'symptom') {
+        if (entry.symptomItems && entry.symptomItems.length > 0) {
+          symptomItems = entry.symptomItems;
+        } else if (entry.symptoms) {
+          symptomItems = entry.symptoms.split(',').map(item => ({
+            id: generateId(),
+            name: item.trim()
+          })).filter(s => s.name);
+        } else {
+          symptomItems = [];
+        }
+      } else {
+        symptomItems = [];
+      }
+      
+      openForm(entry.type, true);
       document.getElementById('formTitle').textContent = `${icons[entry.type]} Edit ${labels[entry.type]}`;
       document.getElementById('entryDate').value = entry.date;
       document.getElementById('entryTime').value = entry.time;
