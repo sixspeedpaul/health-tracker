@@ -11,6 +11,9 @@
   
   <!-- Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
   
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -432,6 +435,97 @@
       color: #fff;
     }
     .hidden { display: none !important; }
+    
+    /* Chart Modal */
+    .chart-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #1a1a1a;
+      z-index: 100;
+      flex-direction: column;
+    }
+    .chart-overlay.show { display: flex; }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      padding-top: calc(1rem + env(safe-area-inset-top));
+      background: #242424;
+      border-bottom: 1px solid #333;
+    }
+    .chart-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #e0e0e0;
+    }
+    .chart-container {
+      flex: 1;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+    .chart-wrapper {
+      background: #252525;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    .chart-wrapper h3 {
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chart-canvas-container {
+      position: relative;
+      height: 250px;
+    }
+    .chart-filters {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .chart-filter-btn {
+      padding: 0.5rem 1rem;
+      background: #333;
+      border: 1px solid #444;
+      border-radius: 20px;
+      color: #aaa;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .chart-filter-btn.active {
+      background: #4a5c7c;
+      border-color: #5a7c9c;
+      color: #fff;
+    }
+    .chart-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .stat-card {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 0.75rem;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #e0e0e0;
+    }
+    .stat-value.h2 { color: #4a9c6d; }
+    .stat-value.ch4 { color: #9c6d4a; }
+    .stat-label {
+      font-size: 0.75rem;
+      color: #888;
+      text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
@@ -455,7 +549,7 @@
       <div class="header-buttons">
         <button class="header-btn" onclick="importCSV()">Import</button>
         <button class="header-btn" onclick="copyToClipboard()">Copy</button>
-        <button class="header-btn primary" onclick="exportCSV()">Export</button>
+        <button class="header-btn primary" onclick="openCharts()">Charts</button>
         <button class="header-btn logout" onclick="logout()">Logout</button>
       </div>
     </header>
@@ -494,6 +588,51 @@
       <div class="empty-state">
         <p class="empty-text">No entries yet</p>
         <p class="empty-subtext">Tap a button above to start tracking</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chart Modal -->
+  <div id="chartOverlay" class="chart-overlay">
+    <div class="chart-header">
+      <h2 class="chart-title">📊 Breath Test Charts</h2>
+      <button class="close-btn" onclick="closeCharts()">✕</button>
+    </div>
+    <div class="chart-container">
+      <div class="chart-filters">
+        <button class="chart-filter-btn active" onclick="setChartRange('7')">7 Days</button>
+        <button class="chart-filter-btn" onclick="setChartRange('14')">14 Days</button>
+        <button class="chart-filter-btn" onclick="setChartRange('30')">30 Days</button>
+        <button class="chart-filter-btn" onclick="setChartRange('all')">All Time</button>
+      </div>
+      
+      <div class="chart-wrapper">
+        <h3>Hydrogen & Methane Over Time</h3>
+        <div class="chart-canvas-container">
+          <canvas id="breathChart"></canvas>
+        </div>
+      </div>
+      
+      <div class="chart-wrapper">
+        <h3>Statistics</h3>
+        <div class="chart-stats">
+          <div class="stat-card">
+            <div class="stat-value h2" id="avgH2">--</div>
+            <div class="stat-label">Avg H₂</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value ch4" id="avgCH4">--</div>
+            <div class="stat-label">Avg CH₄</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value h2" id="maxH2">--</div>
+            <div class="stat-label">Max H₂</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value ch4" id="maxCH4">--</div>
+            <div class="stat-label">Max CH₄</div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1705,6 +1844,188 @@
       }
       result.push(current);
       return result;
+    }
+
+    // Chart functions
+    let breathChart = null;
+    let chartRange = '7';
+
+    function openCharts() {
+      document.getElementById('chartOverlay').classList.add('show');
+      renderChart();
+    }
+
+    function closeCharts() {
+      document.getElementById('chartOverlay').classList.remove('show');
+      if (breathChart) {
+        breathChart.destroy();
+        breathChart = null;
+      }
+    }
+
+    function setChartRange(range) {
+      chartRange = range;
+      document.querySelectorAll('.chart-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent.toLowerCase().includes(range) || 
+          (range === 'all' && btn.textContent === 'All Time') ||
+          (range === '7' && btn.textContent === '7 Days') ||
+          (range === '14' && btn.textContent === '14 Days') ||
+          (range === '30' && btn.textContent === '30 Days'));
+      });
+      renderChart();
+    }
+
+    function renderChart() {
+      const breathEntries = entries.filter(e => e.type === 'breath');
+      
+      // Filter by date range
+      let filteredEntries = breathEntries;
+      if (chartRange !== 'all') {
+        const daysAgo = parseInt(chartRange);
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - daysAgo);
+        filteredEntries = breathEntries.filter(e => {
+          const entryDate = new Date(e.date + 'T' + e.time);
+          return entryDate >= cutoffDate;
+        });
+      }
+
+      // Sort by date/time
+      filteredEntries.sort((a, b) => {
+        const dateA = new Date(a.date + 'T' + a.time);
+        const dateB = new Date(b.date + 'T' + b.time);
+        return dateA - dateB;
+      });
+
+      // Prepare data
+      const labels = filteredEntries.map(e => {
+        const date = new Date(e.date + 'T' + e.time);
+        return date;
+      });
+      
+      const h2Data = filteredEntries.map(e => parseInt(e.hydrogen) || 0);
+      const ch4Data = filteredEntries.map(e => parseInt(e.methane) || 0);
+
+      // Calculate stats
+      if (filteredEntries.length > 0) {
+        const avgH2 = (h2Data.reduce((a, b) => a + b, 0) / h2Data.length).toFixed(1);
+        const avgCH4 = (ch4Data.reduce((a, b) => a + b, 0) / ch4Data.length).toFixed(1);
+        const maxH2 = Math.max(...h2Data);
+        const maxCH4 = Math.max(...ch4Data);
+        
+        document.getElementById('avgH2').textContent = avgH2;
+        document.getElementById('avgCH4').textContent = avgCH4;
+        document.getElementById('maxH2').textContent = maxH2;
+        document.getElementById('maxCH4').textContent = maxCH4;
+      } else {
+        document.getElementById('avgH2').textContent = '--';
+        document.getElementById('avgCH4').textContent = '--';
+        document.getElementById('maxH2').textContent = '--';
+        document.getElementById('maxCH4').textContent = '--';
+      }
+
+      // Destroy existing chart
+      if (breathChart) {
+        breathChart.destroy();
+      }
+
+      // Create new chart
+      const ctx = document.getElementById('breathChart').getContext('2d');
+      breathChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Hydrogen (H₂)',
+              data: h2Data,
+              borderColor: '#4a9c6d',
+              backgroundColor: 'rgba(74, 156, 109, 0.1)',
+              borderWidth: 2,
+              tension: 0.3,
+              pointRadius: 4,
+              pointBackgroundColor: '#4a9c6d',
+              fill: true
+            },
+            {
+              label: 'Methane (CH₄)',
+              data: ch4Data,
+              borderColor: '#9c6d4a',
+              backgroundColor: 'rgba(156, 109, 74, 0.1)',
+              borderWidth: 2,
+              tension: 0.3,
+              pointRadius: 4,
+              pointBackgroundColor: '#9c6d4a',
+              fill: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                color: '#aaa',
+                usePointStyle: true,
+                padding: 15
+              }
+            },
+            tooltip: {
+              backgroundColor: '#333',
+              titleColor: '#fff',
+              bodyColor: '#ddd',
+              borderColor: '#555',
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                title: function(context) {
+                  const date = context[0].label;
+                  return new Date(date).toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit'
+                  });
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'time',
+              time: {
+                unit: chartRange === '7' ? 'day' : chartRange === '14' ? 'day' : chartRange === '30' ? 'week' : 'week',
+                displayFormats: {
+                  day: 'MMM d',
+                  week: 'MMM d'
+                }
+              },
+              ticks: {
+                color: '#888',
+                maxRotation: 45
+              },
+              grid: {
+                color: 'rgba(255,255,255,0.05)'
+              }
+            },
+            y: {
+              beginAtZero: true,
+              ticks: {
+                color: '#888'
+              },
+              grid: {
+                color: 'rgba(255,255,255,0.05)'
+              }
+            }
+          }
+        }
+      });
     }
   </script>
 </body>
