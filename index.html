@@ -1025,7 +1025,7 @@
 
     // Food/Meal functions
     function addFoodItem() {
-      const name = document.getElementById('newFoodName').value.trim();
+      const name = document.getElementById('newFoodName').value.trim().toUpperCase();
       if (!name) return;
       const qty = document.getElementById('newFoodQty').value.trim();
       const unit = document.getElementById('newFoodUnit').value.trim();
@@ -1120,7 +1120,7 @@
 
     // Meds functions
     function addMedItem() {
-      const name = document.getElementById('newMedName').value.trim();
+      const name = document.getElementById('newMedName').value.trim().toUpperCase();
       if (!name) return;
       medsItems.push({ id: generateId(), name });
       if (!medsHistory.includes(name)) {
