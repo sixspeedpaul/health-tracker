@@ -618,19 +618,19 @@
         <div class="chart-stats">
           <div class="stat-card">
             <div class="stat-value h2" id="avgH2">--</div>
-            <div class="stat-label">Avg H₂</div>
+            <div class="stat-label">Avg Hydrogen</div>
           </div>
           <div class="stat-card">
             <div class="stat-value ch4" id="avgCH4">--</div>
-            <div class="stat-label">Avg CH₄</div>
+            <div class="stat-label">Avg Methane</div>
           </div>
           <div class="stat-card">
             <div class="stat-value h2" id="maxH2">--</div>
-            <div class="stat-label">Max H₂</div>
+            <div class="stat-label">Max Hydrogen</div>
           </div>
           <div class="stat-card">
             <div class="stat-value ch4" id="maxCH4">--</div>
-            <div class="stat-label">Max CH₄</div>
+            <div class="stat-label">Max Methane</div>
           </div>
         </div>
       </div>
@@ -1903,6 +1903,17 @@
         return date;
       });
       
+      // Store formatted dates for tooltips
+      const formattedDates = filteredEntries.map(e => {
+        const date = new Date(e.date + 'T' + e.time);
+        return date.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+      });
+      
       const h2Data = filteredEntries.map(e => parseInt(e.hydrogen) || 0);
       const ch4Data = filteredEntries.map(e => parseInt(e.methane) || 0);
 
@@ -1985,13 +1996,8 @@
               padding: 10,
               callbacks: {
                 title: function(context) {
-                  const date = context[0].label;
-                  return new Date(date).toLocaleString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit'
-                  });
+                  const index = context[0].dataIndex;
+                  return formattedDates[index];
                 }
               }
             }
