@@ -641,6 +641,7 @@
     
     let accessToken = null;
     let tokenClient = null;
+    let tokenExpiry = null;
     let entries = [];
     let foodHistory = [];
     let medsHistory = [];
@@ -663,8 +664,10 @@
       
       // Check for existing token
       const savedToken = localStorage.getItem('health_access_token');
-      if (savedToken) {
+      const savedExpiry = localStorage.getItem('health_token_expiry');
+      if (savedToken && savedExpiry) {
         accessToken = savedToken;
+        tokenExpiry = parseInt(savedExpiry);
         verifyAndLoadData();
       }
     }
@@ -686,20 +689,77 @@
       }
       
       accessToken = response.access_token;
+      // Token expires in ~3600 seconds, store expiry time (with 5 min buffer)
+      tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
       localStorage.setItem('health_access_token', accessToken);
+      localStorage.setItem('health_token_expiry', tokenExpiry.toString());
       verifyAndLoadData();
+    }
+
+    async function ensureValidToken() {
+      // Check if token is expired or will expire soon
+      if (!accessToken || !tokenExpiry || Date.now() > tokenExpiry) {
+        return new Promise((resolve) => {
+          tokenClient.callback = (response) => {
+            if (response.error) {
+              resolve(false);
+              return;
+            }
+            accessToken = response.access_token;
+            tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
+            localStorage.setItem('health_access_token', accessToken);
+            localStorage.setItem('health_token_expiry', tokenExpiry.toString());
+            resolve(true);
+          };
+          tokenClient.requestAccessToken({ prompt: '' });
+        });
+      }
+      return true;
     }
 
     async function verifyAndLoadData() {
       showSyncStatus('Verifying...', '');
+      
+      // Try to refresh token if expired
+      const tokenValid = await ensureValidToken();
+      if (!tokenValid) {
+        // Token refresh failed, need manual login
+        localStorage.removeItem('health_access_token');
+        localStorage.removeItem('health_token_expiry');
+        accessToken = null;
+        tokenExpiry = null;
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('appContainer').classList.remove('show');
+        hideSyncStatus();
+        return;
+      }
       
       try {
         const response = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`);
         const data = await response.json();
         
         if (data.error) {
+          // If invalid token, try refreshing once more
+          if (data.error.includes('Invalid token') || data.error.includes('token')) {
+            tokenExpiry = 0; // Force refresh
+            const refreshed = await ensureValidToken();
+            if (refreshed) {
+              // Retry verification with new token
+              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`);
+              const retryData = await retryResponse.json();
+              if (!retryData.error) {
+                document.getElementById('loginScreen').classList.add('hidden');
+                document.getElementById('appContainer').classList.add('show');
+                loadDataFromServer();
+                return;
+              }
+            }
+          }
+          
           localStorage.removeItem('health_access_token');
+          localStorage.removeItem('health_token_expiry');
           accessToken = null;
+          tokenExpiry = null;
           showLoginError(data.error);
           document.getElementById('loginScreen').classList.remove('hidden');
           document.getElementById('appContainer').classList.remove('show');
@@ -715,18 +775,46 @@
       } catch (e) {
         showLoginError('Connection error. Please try again.');
         localStorage.removeItem('health_access_token');
+        localStorage.removeItem('health_token_expiry');
         accessToken = null;
+        tokenExpiry = null;
       }
     }
 
     async function loadDataFromServer() {
       showSyncStatus('Loading data...', '');
       
+      // Ensure we have a valid token
+      const tokenValid = await ensureValidToken();
+      if (!tokenValid) {
+        showSyncStatus('Session expired - please refresh', 'error');
+        return;
+      }
+      
       try {
         const response = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
         const data = await response.json();
         
         if (data.error) {
+          // If token error, try refreshing and retry once
+          if (data.error.includes('Invalid token') || data.error.includes('token')) {
+            tokenExpiry = 0;
+            const refreshed = await ensureValidToken();
+            if (refreshed) {
+              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
+              const retryData = await retryResponse.json();
+              if (!retryData.error) {
+                entries = retryData.entries || [];
+                foodHistory = retryData.foodHistory || [];
+                medsHistory = retryData.medsHistory || [];
+                symptomHistory = retryData.symptomHistory || [];
+                renderTimeline();
+                showSyncStatus('Data loaded ✓', 'success');
+                setTimeout(() => hideSyncStatus(), 2000);
+                return;
+              }
+            }
+          }
           showSyncStatus('Error: ' + data.error, 'error');
           return;
         }
@@ -748,6 +836,13 @@
     async function saveDataToServer() {
       showSyncStatus('Saving...', '');
       
+      // Ensure we have a valid token
+      const tokenValid = await ensureValidToken();
+      if (!tokenValid) {
+        showSyncStatus('Session expired - please refresh', 'error');
+        return;
+      }
+      
       try {
         const data = {
           entries: entries,
@@ -768,6 +863,23 @@
         const result = await response.json();
         
         if (result.error) {
+          // If token error, try refreshing and retry once
+          if (result.error.includes('Invalid token') || result.error.includes('token')) {
+            tokenExpiry = 0;
+            const refreshed = await ensureValidToken();
+            if (refreshed) {
+              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=saveData&token=${accessToken}`, {
+                method: 'POST',
+                body: formData
+              });
+              const retryResult = await retryResponse.json();
+              if (!retryResult.error) {
+                showSyncStatus('Saved ✓', 'success');
+                setTimeout(() => hideSyncStatus(), 2000);
+                return;
+              }
+            }
+          }
           showSyncStatus('Error: ' + result.error, 'error');
           return;
         }
@@ -805,8 +917,12 @@
     function logout() {
       if (confirm('Sign out? Your data is saved in Google Sheets.')) {
         localStorage.removeItem('health_access_token');
+        localStorage.removeItem('health_token_expiry');
+        if (accessToken) {
+          google.accounts.oauth2.revoke(accessToken);
+        }
         accessToken = null;
-        google.accounts.oauth2.revoke(accessToken);
+        tokenExpiry = null;
         location.reload();
       }
     }
@@ -842,8 +958,13 @@
       symptomItems = [];
       
       const now = new Date();
-      document.getElementById('entryDate').value = now.toISOString().split('T')[0];
-      document.getElementById('entryTime').value = now.toTimeString().slice(0, 5);
+      const localDate = now.getFullYear() + '-' + 
+        String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+        String(now.getDate()).padStart(2, '0');
+      const localTime = String(now.getHours()).padStart(2, '0') + ':' + 
+        String(now.getMinutes()).padStart(2, '0');
+      document.getElementById('entryDate').value = localDate;
+      document.getElementById('entryTime').value = localTime;
       
       document.getElementById('formTitle').textContent = `${icons[type]} Add ${labels[type]}`;
       
