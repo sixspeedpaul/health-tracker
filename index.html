@@ -131,7 +131,15 @@
       text-align: center;
     }
     .sync-status.show { display: block; }
-    .sync-status.error { background: #4a2a2a; border-color: #5a3a3a; color: #f88a8a; }
+    .sync-status.error { 
+      background: #4a2a2a; 
+      border-color: #5a3a3a; 
+      color: #f88a8a; 
+    }
+    .sync-status.error.clickable {
+      cursor: pointer;
+      text-decoration: underline;
+    }
     .sync-status.success { background: #2a4a3a; border-color: #3a5a4a; color: #8af88a; }
     
     .export-message {
@@ -839,8 +847,16 @@
       // Check if token is expired or will expire soon
       if (!accessToken || !tokenExpiry || Date.now() > tokenExpiry) {
         return new Promise((resolve) => {
+          // Set a timeout - if refresh takes too long, fail
+          const timeoutId = setTimeout(() => {
+            console.log('Token refresh timed out');
+            resolve(false);
+          }, 5000);
+          
           tokenClient.callback = (response) => {
+            clearTimeout(timeoutId);
             if (response.error) {
+              console.log('Token refresh error:', response.error);
               resolve(false);
               return;
             }
@@ -850,10 +866,48 @@
             localStorage.setItem('health_token_expiry', tokenExpiry.toString());
             resolve(true);
           };
-          tokenClient.requestAccessToken({ prompt: '' });
+          
+          // Try silent refresh first
+          try {
+            tokenClient.requestAccessToken({ prompt: '' });
+          } catch (e) {
+            clearTimeout(timeoutId);
+            console.log('Token refresh exception:', e);
+            resolve(false);
+          }
         });
       }
       return true;
+    }
+
+    function showReauthRequired() {
+      const el = document.getElementById('syncStatus');
+      el.textContent = 'Session expired - tap here to reconnect';
+      el.className = 'sync-status show error clickable';
+      el.onclick = () => {
+        el.onclick = null;
+        el.classList.remove('clickable');
+        reauthenticate();
+      };
+    }
+
+    function reauthenticate() {
+      showSyncStatus('Reconnecting...', '');
+      tokenClient.callback = (response) => {
+        if (response.error) {
+          showSyncStatus('Reconnect failed - try logout/login', 'error');
+          return;
+        }
+        accessToken = response.access_token;
+        tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
+        localStorage.setItem('health_access_token', accessToken);
+        localStorage.setItem('health_token_expiry', tokenExpiry.toString());
+        showSyncStatus('Reconnected ✓ Saving...', 'success');
+        // Retry the save
+        setTimeout(() => saveDataToServer(), 500);
+      };
+      // This will show Google sign-in popup
+      tokenClient.requestAccessToken({ prompt: 'consent' });
     }
 
     async function verifyAndLoadData() {
@@ -878,23 +932,6 @@
         const data = await response.json();
         
         if (data.error) {
-          // If invalid token, try refreshing once more
-          if (data.error.includes('Invalid token') || data.error.includes('token')) {
-            tokenExpiry = 0; // Force refresh
-            const refreshed = await ensureValidToken();
-            if (refreshed) {
-              // Retry verification with new token
-              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`);
-              const retryData = await retryResponse.json();
-              if (!retryData.error) {
-                document.getElementById('loginScreen').classList.add('hidden');
-                document.getElementById('appContainer').classList.add('show');
-                loadDataFromServer();
-                return;
-              }
-            }
-          }
-          
           localStorage.removeItem('health_access_token');
           localStorage.removeItem('health_token_expiry');
           accessToken = null;
@@ -926,7 +963,7 @@
       // Ensure we have a valid token
       const tokenValid = await ensureValidToken();
       if (!tokenValid) {
-        showSyncStatus('Session expired - please refresh', 'error');
+        showReauthRequired();
         return;
       }
       
@@ -935,24 +972,11 @@
         const data = await response.json();
         
         if (data.error) {
-          // If token error, try refreshing and retry once
+          // If token error, show reauth option
           if (data.error.includes('Invalid token') || data.error.includes('token')) {
             tokenExpiry = 0;
-            const refreshed = await ensureValidToken();
-            if (refreshed) {
-              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
-              const retryData = await retryResponse.json();
-              if (!retryData.error) {
-                entries = retryData.entries || [];
-                foodHistory = retryData.foodHistory || [];
-                medsHistory = retryData.medsHistory || [];
-                symptomHistory = retryData.symptomHistory || [];
-                renderTimeline();
-                showSyncStatus('Data loaded ✓', 'success');
-                setTimeout(() => hideSyncStatus(), 2000);
-                return;
-              }
-            }
+            showReauthRequired();
+            return;
           }
           showSyncStatus('Error: ' + data.error, 'error');
           return;
@@ -968,7 +992,7 @@
         setTimeout(() => hideSyncStatus(), 2000);
         
       } catch (e) {
-        showSyncStatus('Failed to load data', 'error');
+        showReauthRequired();
       }
     }
 
@@ -978,7 +1002,7 @@
       // Ensure we have a valid token
       const tokenValid = await ensureValidToken();
       if (!tokenValid) {
-        showSyncStatus('Session expired - please refresh', 'error');
+        showReauthRequired();
         return;
       }
       
@@ -1002,22 +1026,11 @@
         const result = await response.json();
         
         if (result.error) {
-          // If token error, try refreshing and retry once
+          // If token error, show reauth option
           if (result.error.includes('Invalid token') || result.error.includes('token')) {
-            tokenExpiry = 0;
-            const refreshed = await ensureValidToken();
-            if (refreshed) {
-              const retryResponse = await fetch(`${APPS_SCRIPT_URL}?action=saveData&token=${accessToken}`, {
-                method: 'POST',
-                body: formData
-              });
-              const retryResult = await retryResponse.json();
-              if (!retryResult.error) {
-                showSyncStatus('Saved ✓', 'success');
-                setTimeout(() => hideSyncStatus(), 2000);
-                return;
-              }
-            }
+            tokenExpiry = 0; // Force token refresh next time
+            showReauthRequired();
+            return;
           }
           showSyncStatus('Error: ' + result.error, 'error');
           return;
@@ -1028,7 +1041,7 @@
         
       } catch (e) {
         console.error('Save error:', e);
-        showSyncStatus('Failed to save', 'error');
+        showReauthRequired();
       }
     }
 
@@ -1041,10 +1054,13 @@
       const el = document.getElementById('syncStatus');
       el.textContent = text;
       el.className = 'sync-status show' + (type ? ' ' + type : '');
+      el.onclick = null;
     }
 
     function hideSyncStatus() {
-      document.getElementById('syncStatus').classList.remove('show');
+      const el = document.getElementById('syncStatus');
+      el.classList.remove('show', 'clickable');
+      el.onclick = null;
     }
 
     function showLoginError(msg) {
@@ -2006,7 +2022,7 @@
             x: {
               type: 'time',
               time: {
-                unit: chartRange === '1' ? 'day' : chartRange === '7' ? 'day' : chartRange === '30' ? 'week' : 'week',
+                unit: chartRange === '7' ? 'day' : chartRange === '14' ? 'day' : chartRange === '30' ? 'week' : 'week',
                 displayFormats: {
                   day: 'MMM d',
                   week: 'MMM d'
