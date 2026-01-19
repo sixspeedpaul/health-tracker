@@ -748,7 +748,7 @@
           </div>
           <div class="field-group">
             <label class="label">Methane (ppm)</label>
-            <input type="number" id="methaneInput" class="input" value="0">
+            <input type="number" id="methaneInput" class="input" placeholder="0">
           </div>
         </div>
 
@@ -801,14 +801,60 @@
     let medsItems = [];
     let symptomItems = [];
     let saveTimeout = null;
+    let pendingSync = false;
+    let isOnline = true;
+
+    // Load data from local storage first (offline-first)
+    function loadFromLocalStorage() {
+      try {
+        const saved = localStorage.getItem('health_entries');
+        if (saved) {
+          const data = JSON.parse(saved);
+          entries = data.entries || [];
+          foodHistory = data.foodHistory || [];
+          medsHistory = data.medsHistory || [];
+          symptomHistory = data.symptomHistory || [];
+          return true;
+        }
+      } catch (e) {
+        console.error('Error loading from localStorage:', e);
+      }
+      return false;
+    }
+
+    function saveToLocalStorage() {
+      try {
+        localStorage.setItem('health_entries', JSON.stringify({
+          entries,
+          foodHistory,
+          medsHistory,
+          symptomHistory,
+          lastModified: Date.now()
+        }));
+      } catch (e) {
+        console.error('Error saving to localStorage:', e);
+      }
+    }
 
     // Initialize Google Identity Services
     function initGoogleAuth() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: 'email profile',
-        callback: handleAuthResponse
-      });
+      try {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'email profile',
+          callback: handleAuthResponse
+        });
+      } catch (e) {
+        console.error('Error initializing Google auth:', e);
+      }
+      
+      // Load local data first for instant display
+      const hasLocalData = loadFromLocalStorage();
+      if (hasLocalData) {
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('appContainer').classList.add('show');
+        renderTimeline();
+      }
       
       // Check for existing token
       const savedToken = localStorage.getItem('health_access_token');
@@ -816,7 +862,16 @@
       if (savedToken && savedExpiry) {
         accessToken = savedToken;
         tokenExpiry = parseInt(savedExpiry);
-        verifyAndLoadData();
+        
+        // If we have local data, sync in background
+        if (hasLocalData) {
+          backgroundSync();
+        } else {
+          verifyAndLoadData();
+        }
+      } else if (!hasLocalData) {
+        // No local data and no token - show login
+        document.getElementById('loginScreen').classList.remove('hidden');
       }
     }
 
@@ -824,7 +879,26 @@
       document.getElementById('loginError').style.display = 'none';
       document.getElementById('loginLoading').style.display = 'block';
       document.getElementById('loginBtn').style.display = 'none';
-      tokenClient.requestAccessToken();
+      
+      // Add timeout for login
+      const loginTimeout = setTimeout(() => {
+        document.getElementById('loginLoading').style.display = 'none';
+        document.getElementById('loginBtn').style.display = 'flex';
+        showLoginError('Login timed out. Please try again.');
+      }, 30000);
+      
+      try {
+        tokenClient.callback = (response) => {
+          clearTimeout(loginTimeout);
+          handleAuthResponse(response);
+        };
+        tokenClient.requestAccessToken();
+      } catch (e) {
+        clearTimeout(loginTimeout);
+        document.getElementById('loginLoading').style.display = 'none';
+        document.getElementById('loginBtn').style.display = 'flex';
+        showLoginError('Login failed. Please try again.');
+      }
     }
 
     function handleAuthResponse(response) {
@@ -837,39 +911,49 @@
       }
       
       accessToken = response.access_token;
-      // Token expires in ~3600 seconds, store expiry time (with 5 min buffer)
       tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
       localStorage.setItem('health_access_token', accessToken);
       localStorage.setItem('health_token_expiry', tokenExpiry.toString());
-      verifyAndLoadData();
+      
+      // Show app immediately
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('appContainer').classList.add('show');
+      
+      // Load/sync data
+      if (entries.length > 0) {
+        // We have local data, sync in background
+        renderTimeline();
+        backgroundSync();
+      } else {
+        loadDataFromServer();
+      }
     }
 
     async function ensureValidToken() {
+      if (!tokenClient) return false;
+      
       // Check if token is expired or will expire soon
       if (!accessToken || !tokenExpiry || Date.now() > tokenExpiry) {
         return new Promise((resolve) => {
-          // Set a timeout - if refresh takes too long, fail
           const timeoutId = setTimeout(() => {
             console.log('Token refresh timed out');
             resolve(false);
           }, 5000);
           
-          tokenClient.callback = (response) => {
-            clearTimeout(timeoutId);
-            if (response.error) {
-              console.log('Token refresh error:', response.error);
-              resolve(false);
-              return;
-            }
-            accessToken = response.access_token;
-            tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
-            localStorage.setItem('health_access_token', accessToken);
-            localStorage.setItem('health_token_expiry', tokenExpiry.toString());
-            resolve(true);
-          };
-          
-          // Try silent refresh first
           try {
+            tokenClient.callback = (response) => {
+              clearTimeout(timeoutId);
+              if (response.error) {
+                console.log('Token refresh error:', response.error);
+                resolve(false);
+                return;
+              }
+              accessToken = response.access_token;
+              tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
+              localStorage.setItem('health_access_token', accessToken);
+              localStorage.setItem('health_token_expiry', tokenExpiry.toString());
+              resolve(true);
+            };
             tokenClient.requestAccessToken({ prompt: '' });
           } catch (e) {
             clearTimeout(timeoutId);
@@ -883,7 +967,7 @@
 
     function showReauthRequired() {
       const el = document.getElementById('syncStatus');
-      el.textContent = 'Session expired - tap here to reconnect';
+      el.textContent = 'Tap to sync with Google Sheets';
       el.className = 'sync-status show error clickable';
       el.onclick = () => {
         el.onclick = null;
@@ -893,31 +977,87 @@
     }
 
     function reauthenticate() {
-      showSyncStatus('Reconnecting...', '');
-      tokenClient.callback = (response) => {
-        if (response.error) {
-          showSyncStatus('Reconnect failed - try logout/login', 'error');
-          return;
+      showSyncStatus('Connecting...', '');
+      
+      const authTimeout = setTimeout(() => {
+        showSyncStatus('Connection timed out', 'error');
+        setTimeout(() => showReauthRequired(), 2000);
+      }, 15000);
+      
+      try {
+        tokenClient.callback = (response) => {
+          clearTimeout(authTimeout);
+          if (response.error) {
+            showSyncStatus('Connection failed', 'error');
+            setTimeout(() => showReauthRequired(), 2000);
+            return;
+          }
+          accessToken = response.access_token;
+          tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
+          localStorage.setItem('health_access_token', accessToken);
+          localStorage.setItem('health_token_expiry', tokenExpiry.toString());
+          showSyncStatus('Connected ✓ Syncing...', 'success');
+          setTimeout(() => saveDataToServer(), 500);
+        };
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      } catch (e) {
+        clearTimeout(authTimeout);
+        showSyncStatus('Connection failed', 'error');
+        setTimeout(() => showReauthRequired(), 2000);
+      }
+    }
+
+    // Background sync - tries to sync with server without blocking UI
+    async function backgroundSync() {
+      if (pendingSync) return;
+      pendingSync = true;
+      
+      const tokenValid = await ensureValidToken();
+      if (tokenValid) {
+        try {
+          const response = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
+          const data = await response.json();
+          
+          if (!data.error) {
+            // Merge server data with local data
+            const serverEntries = data.entries || [];
+            const localLastModified = parseInt(localStorage.getItem('health_last_sync') || '0');
+            
+            // If server has newer/more data, use it
+            if (serverEntries.length > entries.length) {
+              entries = serverEntries;
+              foodHistory = data.foodHistory || foodHistory;
+              medsHistory = data.medsHistory || medsHistory;
+              symptomHistory = data.symptomHistory || symptomHistory;
+              saveToLocalStorage();
+              renderTimeline();
+            } else if (entries.length > serverEntries.length) {
+              // Local has more data, push to server
+              await saveDataToServer();
+            }
+            
+            localStorage.setItem('health_last_sync', Date.now().toString());
+          }
+        } catch (e) {
+          console.log('Background sync failed:', e);
         }
-        accessToken = response.access_token;
-        tokenExpiry = Date.now() + ((response.expires_in || 3600) - 300) * 1000;
-        localStorage.setItem('health_access_token', accessToken);
-        localStorage.setItem('health_token_expiry', tokenExpiry.toString());
-        showSyncStatus('Reconnected ✓ Saving...', 'success');
-        // Retry the save
-        setTimeout(() => saveDataToServer(), 500);
-      };
-      // This will show Google sign-in popup
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+      }
+      
+      pendingSync = false;
     }
 
     async function verifyAndLoadData() {
-      showSyncStatus('Verifying...', '');
+      showSyncStatus('Syncing...', '');
       
-      // Try to refresh token if expired
       const tokenValid = await ensureValidToken();
       if (!tokenValid) {
-        // Token refresh failed, need manual login
+        // Token refresh failed - but if we have local data, that's ok
+        if (entries.length > 0) {
+          hideSyncStatus();
+          showReauthRequired();
+          return;
+        }
+        // No local data and no valid token - need login
         localStorage.removeItem('health_access_token');
         localStorage.removeItem('health_token_expiry');
         accessToken = null;
@@ -929,10 +1069,23 @@
       }
       
       try {
-        const response = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=verify&token=${accessToken}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         const data = await response.json();
         
         if (data.error) {
+          if (entries.length > 0) {
+            // Have local data, show app but indicate sync issue
+            hideSyncStatus();
+            showReauthRequired();
+            return;
+          }
           localStorage.removeItem('health_access_token');
           localStorage.removeItem('health_token_expiry');
           accessToken = null;
@@ -943,13 +1096,22 @@
           return;
         }
         
-        // Success - show app
+        // Success - show app and load data
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('appContainer').classList.add('show');
         
         loadDataFromServer();
         
       } catch (e) {
+        console.log('Verify error:', e);
+        if (entries.length > 0) {
+          // Have local data, continue offline
+          document.getElementById('loginScreen').classList.add('hidden');
+          document.getElementById('appContainer').classList.add('show');
+          renderTimeline();
+          hideSyncStatus();
+          return;
+        }
         showLoginError('Connection error. Please try again.');
         localStorage.removeItem('health_access_token');
         localStorage.removeItem('health_token_expiry');
@@ -959,27 +1121,39 @@
     }
 
     async function loadDataFromServer() {
-      showSyncStatus('Loading data...', '');
+      showSyncStatus('Loading...', '');
       
-      // Ensure we have a valid token
       const tokenValid = await ensureValidToken();
       if (!tokenValid) {
-        showReauthRequired();
+        if (entries.length > 0) {
+          renderTimeline();
+          hideSyncStatus();
+          showReauthRequired();
+        } else {
+          showReauthRequired();
+        }
         return;
       }
       
       try {
-        const response = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        const response = await fetch(`${APPS_SCRIPT_URL}?action=getData&token=${accessToken}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
         const data = await response.json();
         
         if (data.error) {
-          // If token error, show reauth option
-          if (data.error.includes('Invalid token') || data.error.includes('token')) {
-            tokenExpiry = 0;
+          if (entries.length > 0) {
+            renderTimeline();
+            hideSyncStatus();
             showReauthRequired();
             return;
           }
-          showSyncStatus('Error: ' + data.error, 'error');
+          showSyncStatus('Error loading data', 'error');
           return;
         }
         
@@ -988,22 +1162,38 @@
         medsHistory = data.medsHistory || [];
         symptomHistory = data.symptomHistory || [];
         
+        // Save to local storage
+        saveToLocalStorage();
+        localStorage.setItem('health_last_sync', Date.now().toString());
+        
         renderTimeline();
-        showSyncStatus('Data loaded ✓', 'success');
+        showSyncStatus('Synced ✓', 'success');
         setTimeout(() => hideSyncStatus(), 2000);
         
       } catch (e) {
-        showReauthRequired();
+        console.log('Load error:', e);
+        if (entries.length > 0) {
+          renderTimeline();
+          hideSyncStatus();
+        } else {
+          showSyncStatus('Connection failed', 'error');
+        }
       }
     }
 
     async function saveDataToServer() {
-      showSyncStatus('Saving...', '');
+      // Always save locally first (instant)
+      saveToLocalStorage();
       
-      // Ensure we have a valid token
+      showSyncStatus('Syncing...', '');
+      
       const tokenValid = await ensureValidToken();
       if (!tokenValid) {
-        showReauthRequired();
+        showSyncStatus('Saved locally', 'success');
+        setTimeout(() => {
+          hideSyncStatus();
+          showReauthRequired();
+        }, 1500);
         return;
       }
       
@@ -1015,40 +1205,48 @@
           symptomHistory: symptomHistory
         };
         
-        // Use a form-based approach that works with Google Apps Script
         const formData = new FormData();
         formData.append('data', JSON.stringify(data));
         
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
         const response = await fetch(`${APPS_SCRIPT_URL}?action=saveData&token=${accessToken}`, {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         
         const result = await response.json();
         
         if (result.error) {
-          // If token error, show reauth option
-          if (result.error.includes('Invalid token') || result.error.includes('token')) {
-            tokenExpiry = 0; // Force token refresh next time
+          showSyncStatus('Saved locally', 'success');
+          setTimeout(() => {
+            hideSyncStatus();
             showReauthRequired();
-            return;
-          }
-          showSyncStatus('Error: ' + result.error, 'error');
+          }, 1500);
           return;
         }
         
-        showSyncStatus('Saved ✓', 'success');
+        localStorage.setItem('health_last_sync', Date.now().toString());
+        showSyncStatus('Synced ✓', 'success');
         setTimeout(() => hideSyncStatus(), 2000);
         
       } catch (e) {
         console.error('Save error:', e);
-        showReauthRequired();
+        showSyncStatus('Saved locally', 'success');
+        setTimeout(() => hideSyncStatus(), 2000);
       }
     }
 
     function debouncedSave() {
+      // Save to local storage immediately
+      saveToLocalStorage();
+      
+      // Debounce server sync
       if (saveTimeout) clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => saveDataToServer(), 1000);
+      saveTimeout = setTimeout(() => saveDataToServer(), 2000);
     }
 
     function showSyncStatus(text, type) {
@@ -1071,11 +1269,14 @@
     }
 
     function logout() {
-      if (confirm('Sign out? Your data is saved in Google Sheets.')) {
+      if (confirm('Sign out? Your data is saved locally and in Google Sheets.')) {
         localStorage.removeItem('health_access_token');
         localStorage.removeItem('health_token_expiry');
+        // Keep local data for offline use
         if (accessToken) {
-          google.accounts.oauth2.revoke(accessToken);
+          try {
+            google.accounts.oauth2.revoke(accessToken);
+          } catch (e) {}
         }
         accessToken = null;
         tokenExpiry = null;
@@ -1085,12 +1286,6 @@
 
     // Wait for Google script to load
     window.onload = function() {
-      if (typeof google !== 'undefined') {
-        initGoogleAuth();
-      } else {
-        setTimeout(initGoogleAuth, 500);
-      }
-      
       // Scroll input into view when focused (for mobile keyboard)
       document.addEventListener('focusin', function(e) {
         if (e.target.matches('input, textarea')) {
@@ -1099,6 +1294,30 @@
           }, 300);
         }
       });
+      
+      // Try to initialize Google auth, with fallback for offline
+      const initWithRetry = (attempts = 0) => {
+        if (typeof google !== 'undefined' && google.accounts) {
+          initGoogleAuth();
+        } else if (attempts < 5) {
+          setTimeout(() => initWithRetry(attempts + 1), 500);
+        } else {
+          // Google auth failed to load - try offline mode
+          console.log('Google auth not available, using offline mode');
+          const hasLocalData = loadFromLocalStorage();
+          if (hasLocalData) {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('appContainer').classList.add('show');
+            renderTimeline();
+            showSyncStatus('Offline mode', '');
+            setTimeout(() => hideSyncStatus(), 3000);
+          } else {
+            showLoginError('Could not connect to Google. Check your internet connection.');
+          }
+        }
+      };
+      
+      initWithRetry();
     };
 
     function generateId() {
@@ -1150,7 +1369,7 @@
       if (type === 'breath') {
         document.getElementById('breathFields').classList.remove('hidden');
         document.getElementById('hydrogenInput').value = '';
-        document.getElementById('methaneInput').value = '0';
+        document.getElementById('methaneInput').value = '';
       }
       if (type === 'stool') {
         document.getElementById('stoolFields').classList.remove('hidden');
@@ -1186,7 +1405,7 @@
       const qty = document.getElementById('newFoodQty').value.trim();
       const unit = document.getElementById('newFoodUnit').value.trim();
       mealItems.push({ id: generateId(), name, qty, unit });
-      if (!foodHistory.includes(name)) {
+      if (!foodHistory.some(f => f.toUpperCase() === name)) {
         foodHistory.push(name);
       }
       document.getElementById('newFoodName').value = '';
@@ -1203,12 +1422,15 @@
     }
 
     function toggleFoodHistory(name) {
-      const exists = mealItems.find(m => m.name === name);
+      const upperName = name.toUpperCase();
+      const exists = mealItems.find(m => m.name.toUpperCase() === upperName);
       if (exists) {
-        mealItems = mealItems.filter(m => m.name !== name);
+        mealItems = mealItems.filter(m => m.name.toUpperCase() !== upperName);
       } else {
-        mealItems.push({ id: generateId(), name, qty: '', unit: '' });
+        mealItems.push({ id: generateId(), name: upperName, qty: '', unit: '' });
       }
+      // Clear the input field
+      document.getElementById('newFoodName').value = '';
       renderMealItems();
       renderFoodHistory();
     }
@@ -1245,7 +1467,7 @@
       entries.forEach(e => {
         if (e.type === 'meal' && e.meal) {
           e.meal.split(',').forEach(item => {
-            const name = item.trim().split('(')[0].trim();
+            const name = item.trim().split('(')[0].trim().toUpperCase();
             if (name) {
               foodCounts[name] = (foodCounts[name] || 0) + 1;
             }
@@ -1255,6 +1477,8 @@
       
       // Sort by frequency and take top 10
       const sortedFoods = foodHistory
+        .map(f => f.toUpperCase())
+        .filter((food, index, self) => self.indexOf(food) === index) // dedupe
         .filter(food => food.toLowerCase().includes(filterText))
         .sort((a, b) => (foodCounts[b] || 0) - (foodCounts[a] || 0))
         .slice(0, 10);
@@ -1265,7 +1489,7 @@
       }
       field.classList.remove('hidden');
       grid.innerHTML = sortedFoods.map(food => {
-        const isSelected = mealItems.some(m => m.name === food);
+        const isSelected = mealItems.some(m => m.name.toUpperCase() === food.toUpperCase());
         return `<button class="history-chip ${isSelected ? 'selected' : ''}" onclick="toggleFoodHistory('${food.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${food}</button>`;
       }).join('');
     }
@@ -1279,7 +1503,7 @@
       const name = document.getElementById('newMedName').value.trim().toUpperCase();
       if (!name) return;
       medsItems.push({ id: generateId(), name });
-      if (!medsHistory.includes(name)) {
+      if (!medsHistory.some(m => m.toUpperCase() === name)) {
         medsHistory.push(name);
       }
       document.getElementById('newMedName').value = '';
@@ -1294,12 +1518,15 @@
     }
 
     function toggleMedsHistory(name) {
-      const exists = medsItems.find(m => m.name === name);
+      const upperName = name.toUpperCase();
+      const exists = medsItems.find(m => m.name.toUpperCase() === upperName);
       if (exists) {
-        medsItems = medsItems.filter(m => m.name !== name);
+        medsItems = medsItems.filter(m => m.name.toUpperCase() !== upperName);
       } else {
-        medsItems.push({ id: generateId(), name });
+        medsItems.push({ id: generateId(), name: upperName });
       }
+      // Clear the input field
+      document.getElementById('newMedName').value = '';
       renderMedsItems();
       renderMedsHistory();
     }
@@ -1330,7 +1557,7 @@
       entries.forEach(e => {
         if (e.type === 'meds' && e.meds) {
           e.meds.split(',').forEach(item => {
-            const name = item.trim();
+            const name = item.trim().toUpperCase();
             if (name) {
               medCounts[name] = (medCounts[name] || 0) + 1;
             }
@@ -1340,6 +1567,8 @@
       
       // Sort by frequency and take top 10
       const sortedMeds = medsHistory
+        .map(m => m.toUpperCase())
+        .filter((med, index, self) => self.indexOf(med) === index) // dedupe
         .filter(med => med.toLowerCase().includes(filterText))
         .sort((a, b) => (medCounts[b] || 0) - (medCounts[a] || 0))
         .slice(0, 10);
@@ -1350,7 +1579,7 @@
       }
       field.classList.remove('hidden');
       grid.innerHTML = sortedMeds.map(med => {
-        const isSelected = medsItems.some(m => m.name === med);
+        const isSelected = medsItems.some(m => m.name.toUpperCase() === med.toUpperCase());
         return `<button class="history-chip meds ${isSelected ? 'selected' : ''}" onclick="toggleMedsHistory('${med.replace(/'/g, "\\'")}')">${isSelected ? '✓ ' : ''}${med}</button>`;
       }).join('');
     }
@@ -1385,6 +1614,8 @@
       } else {
         symptomItems.push({ id: generateId(), name });
       }
+      // Clear the input field
+      document.getElementById('newSymptomName').value = '';
       renderSymptomItems();
       renderSymptomHistory();
     }
@@ -1461,16 +1692,16 @@
       };
 
       if (currentType === 'meal') {
-        entry.mealItems = mealItems;
+        entry.mealItems = mealItems.map(m => ({ ...m, name: m.name.toUpperCase() }));
         entry.meal = mealItems.map(m => {
-          let str = m.name;
+          let str = m.name.toUpperCase();
           if (m.qty) str += ` (${m.qty}${m.unit ? ' ' + m.unit : ''})`;
           return str;
         }).join(', ');
       }
       if (currentType === 'meds') {
-        entry.medsItems = medsItems;
-        entry.meds = medsItems.map(m => m.name).join(', ');
+        entry.medsItems = medsItems.map(m => ({ ...m, name: m.name.toUpperCase() }));
+        entry.meds = medsItems.map(m => m.name.toUpperCase()).join(', ');
       }
       if (currentType === 'symptom') {
         entry.symptomItems = symptomItems;
@@ -1509,14 +1740,14 @@
       // Parse meal string back into items if mealItems not available
       if (entry.type === 'meal') {
         if (entry.mealItems && entry.mealItems.length > 0) {
-          mealItems = entry.mealItems;
+          mealItems = entry.mealItems.map(m => ({ ...m, name: m.name.toUpperCase() }));
         } else if (entry.meal) {
           // Parse "Food Name (qty unit), Food Name 2" format
           mealItems = entry.meal.split(',').map(item => {
             const trimmed = item.trim();
             const match = trimmed.match(/^(.+?)\s*(?:\(([^)]*)\))?$/);
             if (match) {
-              const name = match[1].trim();
+              const name = match[1].trim().toUpperCase();
               const qtyUnit = match[2] ? match[2].trim() : '';
               const qtyMatch = qtyUnit.match(/^(\S+)\s*(.*)$/);
               return {
@@ -1526,7 +1757,7 @@
                 unit: qtyMatch ? qtyMatch[2] : ''
               };
             }
-            return { id: generateId(), name: trimmed, qty: '', unit: '' };
+            return { id: generateId(), name: trimmed.toUpperCase(), qty: '', unit: '' };
           }).filter(m => m.name);
         } else {
           mealItems = [];
@@ -1538,11 +1769,11 @@
       // Parse meds string back into items
       if (entry.type === 'meds') {
         if (entry.medsItems && entry.medsItems.length > 0) {
-          medsItems = entry.medsItems;
+          medsItems = entry.medsItems.map(m => ({ ...m, name: m.name.toUpperCase() }));
         } else if (entry.meds) {
           medsItems = entry.meds.split(',').map(item => ({
             id: generateId(),
-            name: item.trim()
+            name: item.trim().toUpperCase()
           })).filter(m => m.name);
         } else {
           medsItems = [];
@@ -1586,7 +1817,7 @@
       }
       if (entry.type === 'breath') {
         document.getElementById('hydrogenInput').value = entry.hydrogen || '';
-        document.getElementById('methaneInput').value = entry.methane || '0';
+        document.getElementById('methaneInput').value = entry.methane || '';
       }
       if (entry.type === 'stool' && entry.stoolRating) selectRating(entry.stoolRating);
       if (entry.type === 'note') document.getElementById('noteInput').value = entry.notes || '';
@@ -1774,16 +2005,16 @@
           };
 
           if (type === 'meal' && cols[colIndex.meal]) {
-            entry.meal = cols[colIndex.meal];
+            entry.meal = cols[colIndex.meal].toUpperCase();
             cols[colIndex.meal].split(',').forEach(f => {
-              const name = f.trim().split('(')[0].trim();
+              const name = f.trim().split('(')[0].trim().toUpperCase();
               if (name) newFoods.add(name);
             });
           }
           if (type === 'meds' && cols[colIndex.meds]) {
-            entry.meds = cols[colIndex.meds];
+            entry.meds = cols[colIndex.meds].toUpperCase();
             cols[colIndex.meds].split(',').forEach(m => {
-              const name = m.trim();
+              const name = m.trim().toUpperCase();
               if (name) newMeds.add(name);
             });
           }
@@ -1820,6 +2051,7 @@
         symptomHistory = Array.from(newSymptoms);
 
         renderTimeline();
+        saveToLocalStorage();
         saveDataToServer();
         closeImport();
         showMessage(`✓ Imported ${newEntries.length} entries!`);
